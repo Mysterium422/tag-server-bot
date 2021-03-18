@@ -15,5 +15,8 @@
   "bugs": {
     "url": "https://github.com/Mysterium422/TagServerBot/issues"
   },
-  "homepage": "https://github.com/Mysterium422/TagServerBot#readme"
+  "homepage": "https://github.com/Mysterium422/TagServerBot#readme",
+  "dependencies": {
+    "humanize-duration": "^3.25.1"
+  }
 }

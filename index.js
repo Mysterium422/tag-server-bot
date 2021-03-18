@@ -5,6 +5,7 @@ const tagClient = new Discord.Client({partials: ["MESSAGE", "CHANNEL", "REACTION
 const fs = require('fs');
 const yaml = require('js-yaml')
 const schedule = require('node-schedule');
+const humanizeDuration = require('humanize-duration')
 
 
 // FETCH UNUSED BUT WORKS FOR FUTURE
@@ -18,13 +19,11 @@ console.log(tagConfig)
 const package = JSON.parse(fs.readFileSync('package.json'))
 
 
-// HELPER OBJECTS
-const embedFooter = {
-        text: ['TNT Stats Bot by Mysterium_', 'TNT Stats Bot by Mysterium_', 'TNT Stats Bot by Mysterium_', 'Created by Mysterium_', 'Created by Mysterium_', 'Created by Mysterium_', 'Invite this bot to your own server! (/invite)', 'Invite this bot to your own server! (/invite)', 'Invite this bot to your own server! (/invite)', 'Invite this bot to your own server! (/invite)', 'Invite this bot to your own server! (/invite)', 'Wizard Leaderboard Bot! (/discord)', 'Suggest fixes! (/discord)', 'Join the discord! (/discord)', 'All bow to sensei Kidzyy', 'Check out my code! (/source)', `Version: ${package.version}`, 'Report any bugs! (/discord)'],
-        image: {
-            'green': 'https://cdn.discordapp.com/emojis/722990201307398204.png?v=1',
-            'red':   'https://cdn.discordapp.com/emojis/722990201302941756.png?v=1'
-        }
+const embedColors = {
+    green:"#3bcc71",
+    red:"#e74c3c",
+    blue:"#3498db",
+    black:"#000000"
 }
 
 var tagQueues = {}
@@ -64,8 +63,6 @@ async function generateTagTeams(players, limit) {
     }
     var teamA = []
     var teamB = []
-    var teamALeft = limit
-    var teamBLeft = limit
 
     for (party in partiedPlayers) {
         let APossible = (limit - teamA.length >= partiedPlayers[party].length)
@@ -177,7 +174,7 @@ function timeConverter(UNIX_timestamp){
 
 tagClient.on('ready', async () => {
     console.log('Bot: Tag Server Bot is online!');
-    tagClient.user.setActivity("Jonful tell Myst what to put here pls");
+    tagClient.user.setActivity("TNT Tag");
 
     schedule.scheduleJob('0 0 * * * *', async function() {
         
@@ -188,19 +185,22 @@ tagClient.on('ready', async () => {
         let penaltiesGivenKeys = Object.keys(penaltiesGiven)
         let yellowCardRole = await tagGuild.roles.cache.get(tagConfig.yellowCardRoleID)
         let redCardRole = await tagGuild.roles.cache.get(tagConfig.redCardRoleID)
-        for (let k = 0; k < penaltiesGivenKeys; k++) {
-            if (Date.now() - penaltiesGiven[penaltiesGivenKeys[i]] > 4 * 7 * 24 * 60 * 60 * 1000) {
-                let tagMember = await tagGuild.members.fetch(penaltiesGivenKeys[i])
+        for (let k = 0; k < penaltiesGivenKeys.length; k++) {
+            if (Date.now() - penaltiesGiven[penaltiesGivenKeys[k]] > 4 * 7 * 24 * 60 * 60 * 1000) {
+                let tagMember = await tagGuild.members.fetch(penaltiesGivenKeys[k])
                 if (tagMember.roles.cache.has(tagConfig.yellowCardRoleID)) {
                     tagMember.roles.remove(yellowCardRole)
+                    delete penaltiesGiven[penaltiesGivenKeys[k]]
                 }
                 if (tagMember.roles.cache.has(tagConfig.redCardRoleID)) {
-                    if (Date.now() - penaltiesGiven[penaltiesGivenKeys[i]] > 6 * 7 * 24 * 60 * 60 * 1000) {
+                    if (Date.now() - penaltiesGiven[penaltiesGivenKeys[k]] > 6 * 7 * 24 * 60 * 60 * 1000) {
                         tagMember.roles.remove(redCardRole)
+                        delete penaltiesGiven[penaltiesGivenKeys[k]]
                     }
                 }
             }
         }
+        fs.writeFileSync('penalties.json', JSON.stringify(penaltiesGiven))
     })
     schedule.scheduleJob('0 */5 * * * *', async function() {
         
@@ -229,7 +229,7 @@ tagClient.on('message', async m => {
         return
     }
 
-    var prefix = "="
+    var prefix = "."
     if(!m.content.startsWith(prefix)) return
 
     var args = m.content.toLowerCase().slice(prefix.length).split(' ');
@@ -237,23 +237,47 @@ tagClient.on('message', async m => {
 
     console.log(m.author.username+": " + m.content)
     if (command == "help") {
-        m.channel.send(`Ugliest Help Msg Ever
-Will Work here:
-=j or =join
-=l or =leave
-=p invite or =p i
-=p leave
-=p kick
-=p list
-=p disband
-Setting IGNs in #ign
-=queue or =q
-=setplayercount
 
-Implemented but wont work here
-=green
-=yellow
-=red`)
+        if (m.member.roles.cache.has(tagConfig.adminRoleID) || m.member.roles.cache.has(tagConfig.moderatorRoleID)) {
+            return m.channel.send(new Discord.MessageEmbed()
+            .setColor(embedColors.blue)
+            .setTitle('**Help Menu**')
+            .setDescription(`**${prefix}join or ${prefix}j** - Join the queue of the lobby you are in
+    **${prefix}leave or ${prefix}l** - Leave the queue
+    **${prefix}queue or ${prefix}q** - See who is in this queue
+    **${prefix}setplayercount {count}** - Set the player count of the team lobby
+    
+    **${prefix}p invite or ${prefix}p i {user mention}** - Invite a player to your party (party owner only)
+    **${prefix}p leave** - Leave a party
+    **${prefix}p kick {user mention}** - Kick a player from the party (party owner only)
+    **${prefix}p list** - List all players in your party
+    **${prefix}p disband** - Disband the party (party owner only)
+    *You have a much higher chance to be with players in the same party. Both players need to join separately, however*
+    
+    **Staff-only Commands**
+    **${prefix}green {user mention}** - Removes all penalties from the specified user
+    **${prefix}yellow {user mention}** - Gives the specified user a yellow card. If they already have a yellow card, they get a red one
+    **${prefix}red {user mention}** - Gives the specified user a red card.
+    *Cards are automatically taken away when they expire.*`)
+            .setTimestamp())
+        }
+        else {
+            return m.channel.send(new Discord.MessageEmbed()
+            .setColor(embedColors.blue)
+            .setTitle('**Help Menu**')
+            .setDescription(`**${prefix}join or ${prefix}j** - Join the queue of the lobby you are in
+    **${prefix}leave or ${prefix}l** - Leave the queue
+    **${prefix}queue or ${prefix}q** - See who is in this queue
+    **${prefix}setplayercount {count}** - Set the player count of the team lobby
+    
+    **${prefix}p invite or ${prefix}p i {user mention}** - Invite a player to your party (party owner only)
+    **${prefix}p leave** - Leave a party
+    **${prefix}p kick {user mention}** - Kick a player from the party (party owner only)
+    **${prefix}p list** - List all players in your party
+    **${prefix}p disband** - Disband the party (party owner only)
+    *You have a much higher chance to be with players in the same party. Both players need to join separately, however*`)
+            .setTimestamp())
+        }
     }
     else if (command == "yellow") {
         if (!(m.member.roles.cache.has(tagConfig.adminRoleID) || m.member.roles.cache.has(tagConfig.moderatorRoleID))) {
@@ -261,35 +285,57 @@ Implemented but wont work here
         }
 
         if (m.mentions.users.size == 0) {
-            return m.channel.send("No users in the server were specified")
+            /**const embed = new Discord.MessageEmbed()
+        .setColor('#00BF00')
+        .setAuthor(`${m.author.tag}`, `https://cdn.discordapp.com/avatars/${m.author.id}/${m.author.avatar}?size=128`)
+        .setTitle(`Success! Channel Configured`)
+        .setTimestamp()
+        .setFooter(embedFooter.text[randInt(0, embedFooter.text.length - 1)], embedFooter.image.green)
+        .addField(`__Default Game:__`, configurationTool[args[0]], true)
+        .addField(`__Bot Prefix:__`, args[1], true)
+        return m.channel.send(embed)*/
+        return m.channel.send(new Discord.MessageEmbed()
+            .setColor(embedColors.black)
+            .setDescription("Please mention the user(s) you are attempting to give a yellow card to"))
         }
 
         let tagGuild = await tagClient.guilds.cache.get(tagConfig.tagGuildID)
         let yellowCardRole = await tagGuild.roles.cache.get(tagConfig.yellowCardRoleID)
         let redCardRole = await tagGuild.roles.cache.get(tagConfig.redCardRoleID)
-        m.mentions.users.forEach(async (pinged) => {
-            if (pinged.bot) { return m.channel.send("Unfortunately I refuse to give a penalty to my own kind!") }
-            if (!(memberExistsInTagGuild(tagClient.guilds.cache.get(tagConfig.tagGuildID), pinged.id))) {
-                return m.channel.send(`Player <@!${pinged.id}> is not in the guild :(`)
+        m.mentions.members.forEach(async (pinged) => {
+            if (pinged.bot) {
+                return m.channel.send(new Discord.MessageEmbed()
+                    .setColor(embedColors.black)
+                    .setDescription(`I refuse to penalize my own kind (<@!${pinged.id}>)!`))
             }
-
+            if (!(memberExistsInTagGuild(tagClient.guilds.cache.get(tagConfig.tagGuildID), pinged.id))) {
+                return m.channel.send(new Discord.MessageEmbed()
+                    .setColor(embedColors.black)
+                    .setDescription(`Could not find player <@!${pinged.id}>!`))
+            }
             if (pinged.roles.cache.has(tagConfig.redCardRoleID)) {
-                return m.channel.send("This player already has a red card!")
+                return m.channel.send(new Discord.MessageEmbed()
+                    .setColor(embedColors.black)
+                    .setDescription(`<@!${pinged.id}> already has a red card!`))
             }
             else if (pinged.roles.cache.has(tagConfig.yellowCardRoleID)) {
                 pinged.roles.remove(yellowCardRole)
                 pinged.roles.add(redCardRole)
                 penaltiesGiven = JSON.parse(fs.readFileSync('penalties.json'))
-                penaltiesGiven[m.author.id] = Date.now()
+                penaltiesGiven[pinged.id] = Date.now()
                 fs.writeFileSync('penalties.json', JSON.stringify(penaltiesGiven))
-                return m.channel.send(`Gave a red card to <@!${pinged.id}>`)
+                return m.channel.send(new Discord.MessageEmbed()
+                    .setColor(embedColors.green)
+                    .setDescription(`Upgraded the yellow card to a red card for <@!${pinged.id}>`))
             }
             else {
                 pinged.roles.add(yellowCardRole)
                 penaltiesGiven = JSON.parse(fs.readFileSync('penalties.json'))
-                penaltiesGiven[m.author.id] = Date.now()
+                penaltiesGiven[pinged.id] = Date.now()
                 fs.writeFileSync('penalties.json', JSON.stringify(penaltiesGiven))
-                return m.channel.send(`Gave a yellow card to <@!${pinged.id}>`)
+                return m.channel.send(new Discord.MessageEmbed()
+                    .setColor(embedColors.green)
+                    .setDescription(`Gave a yellow card to <@!${pinged.id}>`))
             }
         })
     }
@@ -300,29 +346,41 @@ Implemented but wont work here
         }
 
         if (m.mentions.users.size == 0) {
-            return m.channel.send("No users in the server were specified")
+            return m.channel.send(new Discord.MessageEmbed()
+                .setColor(embedColors.black)
+                .setDescription("Please mention the user(s) you are attempting to give a red card to"))
         }
 
         let tagGuild = await tagClient.guilds.cache.get(tagConfig.tagGuildID)
         let yellowCardRole = await tagGuild.roles.cache.get(tagConfig.yellowCardRoleID)
         let redCardRole = await tagGuild.roles.cache.get(tagConfig.redCardRoleID)
-        m.mentions.users.forEach(async (pinged) => {
-            if (pinged.bot) { return m.channel.send("Unfortunately I refuse to give a penalty to my own kind!") }
+        m.mentions.members.forEach(async (pinged) => {
+            if (pinged.bot) { 
+                return m.channel.send(new Discord.MessageEmbed()
+                    .setColor(embedColors.black)
+                    .setDescription(`I refuse to penalize my own kind (<@!${pinged.id}>)!`))
+            }
             if (!(memberExistsInTagGuild(tagClient.guilds.cache.get(tagConfig.tagGuildID), pinged.id))) {
-                return m.channel.send(`Player <@!${pinged.id}> is not in the guild :(`)
+                return m.channel.send(new Discord.MessageEmbed()
+                    .setColor(embedColors.black)
+                    .setDescription(`Could not find player <@!${pinged.id}>!`))
             }
 
             if (pinged.roles.cache.has(tagConfig.yellowCardRoleID)) {
                 pinged.roles.remove(yellowCardRole)
             }
             if (pinged.roles.cache.has(tagConfig.redCardRoleID)) {
-                return m.channel.send("This player already has a red card!")
+                return m.channel.send(new Discord.MessageEmbed()
+                    .setColor(embedColors.black)
+                    .setDescription(`<@!${pinged.id}> already has a red card!`))
             }
             pinged.roles.add(redCardRole)
             penaltiesGiven = JSON.parse(fs.readFileSync('penalties.json'))
-            penaltiesGiven[m.author.id] = Date.now()
+            penaltiesGiven[pinged.id] = Date.now()
             fs.writeFileSync('penalties.json', JSON.stringify(penaltiesGiven))
-            return m.channel.send(`Gave a yellow card to <@!${pinged.id}>`)
+            return m.channel.send(new Discord.MessageEmbed()
+                .setColor(embedColors.green)
+                .setDescription(`Gave a red card to <@!${pinged.id}>`))
         })
     }
 
@@ -332,95 +390,128 @@ Implemented but wont work here
         }
 
         if (m.mentions.users.size == 0) {
-            return m.channel.send("No users in the server were specified")
+            return m.channel.send(new Discord.MessageEmbed()
+                .setColor(embedColors.black)
+                .setDescription("Please mention the user(s) you are attempting to remove cards from"))
         }
 
         let tagGuild = tagClient.guilds.cache.get(tagConfig.tagGuildID)
         let yellowCardRole = await tagGuild.roles.cache.get(tagConfig.yellowCardRoleID)
         let redCardRole = await tagGuild.roles.cache.get(tagConfig.redCardRoleID)
-        m.mentions.users.forEach(async (pinged) => {
-            if (pinged.bot) { return m.channel.send("Unfortunately I refuse to give a penalty to my own kind!") }
+        m.mentions.members.forEach(async (pinged) => {
+            if (pinged.bot) {
+                return m.channel.send(new Discord.MessageEmbed()
+                    .setColor(embedColors.black)
+                    .setDescription(`I refuse to penalize my own kind (<@!${pinged.id}>)!`))
+            }
             if (!(memberExistsInTagGuild(tagClient.guilds.cache.get(tagConfig.tagGuildID), pinged.id))) {
-                return m.channel.send(`Player <@!${pinged.id}> is not in the guild :(`)
+                return m.channel.send(new Discord.MessageEmbed()
+                    .setColor(embedColors.black)
+                    .setDescription(`Could not find player <@!${pinged.id}>!`))
             }
-
-            if (pinged.roles.cache.has(tagConfig.yellowCardRoleID)) {
-                pinged.roles.remove(yellowCardRole)
-                pinged.roles.remove(redCardRole)
-                penaltiesGiven = JSON.parse(fs.readFileSync('penalties.json'))
-                delete penaltiesGiven[m.author.id]
-                fs.writeFileSync('penalties.json', JSON.stringify(penaltiesGiven))
-                return m.channel.send("Penatlies Removed!")
-
-            }
-            if (pinged.roles.cache.has(tagConfig.redCardRoleID)) {
-                pinged.roles.remove(yellowCardRole)
-                pinged.roles.remove(redCardRole)
-                penaltiesGiven = JSON.parse(fs.readFileSync('penalties.json'))
-                delete penaltiesGiven[m.author.id]
-                fs.writeFileSync('penalties.json', JSON.stringify(penaltiesGiven))
-                return m.channel.send("Penalties Removed!")
-            }
+            pinged.roles.remove(yellowCardRole)
+            pinged.roles.remove(redCardRole)
+            penaltiesGiven = JSON.parse(fs.readFileSync('penalties.json'))
+            delete penaltiesGiven[pinged.id]
+            fs.writeFileSync('penalties.json', JSON.stringify(penaltiesGiven))
+            return m.channel.send(new Discord.MessageEmbed()
+                .setColor(embedColors.green)
+                .setDescription(`Removed all penalties from <@!${pinged.id}>`))
         })
+    }
+    else if (command == "status") {
+        if (!(m.member.roles.cache.has(tagConfig.adminRoleID) || m.member.roles.cache.has(tagConfig.moderatorRoleID))) {
+            return;
+        }
+
+        var penaltyJson = JSON.parse(fs.readFileSync('penalties.json'))
+        var penaltyJSONArray = []
+        let tagGuild = await tagClient.guilds.cache.get(tagConfig.tagGuildID)
+
+        for (player in penaltyJson) {
+            let tagMember = await tagGuild.members.fetch(player)
+            var cardName = ""
+            if (tagMember.roles.cache.hasRole(config.redCardRoleID)) {
+                cardName = "red"
+            }
+            else if (tagMember.roles.cache.hasRole(config.yellowCardRoleID)) {
+                cardName = "yellow"
+            }
+            else {
+                delete penaltyJson[player]
+                continue
+            }
+            penaltyJSONArray.push({id:player, time:penaltyJson[player], card:cardName})
+        }
+        penaltyJSONArray = penaltyJSONArray.sort((a, b) => {
+            return a.time - b.time
+        })
+        var res = ""
+        for (let r = 0; r < penaltyJSONArray.filter((a) => {return a.card == "red"}).length; r++) {
+            res = `${res}\n:red_square: <@!${penaltyJSONArray[r].id}> ${timeConverter(penaltyJSONArray.time + 6 * 7 * 24 * 60 * 60 * 1000)}`
+        }
+        res = `${res}\n`
+        for (let r = 0; r < penaltyJSONArray.filter((a) => {return a.card == "yellow"}).length; r++) {
+            res = `${res}\n:yellow_square: <@!${penaltyJSONArray[r].id}> ${timeConverter(penaltyJSONArray.time + 4 * 7 * 24 * 60 * 60 * 1000)}`
+        }
+        res = `${res}\n*All Dates are when the penalties will expire (be removed)`
+
+        m.channel.send(new Discord.MessageEmbed()
+            .setColor(embedColors.blue)
+            .setTitle("**Penalty Status Board")
+            .setDescription(res))
     }
 
     let tagChannels = [tagConfig.soloChannelID, tagConfig.duoChannelID, tagConfig.teamChannelID]
     if (!tagChannels.includes(m.channel.id)) return;
     if (command == 'queue' || command == 'q') {
         if(tagQueues[m.channel.id].length == 0) {
-            return m.channel.send("No one in this queue")
+            return m.channel.send(new Discord.MessageEmbed()
+                .setColor(embedColors.red)
+                .setDescription("No one in this queue"))
         }
 
-        responseOutput = await m.channel.send(`Loading...`)
-        response = `**Game Queue**
-Creator: `
+        var queueResponse = ""
         for (let i = 0; i < tagQueues[m.channel.id].length; i++) {
-            response = `${response}<@!${tagQueues[m.channel.id][i]}>\n`
+            queueResponse = `${queueResponse}<@!${tagQueues[m.channel.id][i]}>\n`
         }
-
-        responseOutput.edit(response)
+        return m.channel.send(new Discord.MessageEmbed()
+            .setColor(embedColors.blue)
+            .setTitle(`**Game Queue** [${tagQueues[m.channel.id].length}/${tagQueueLimits[m.channel.id]*2}]`)
+            .setDescription(`Creator: ${queueResponse}`))
     }
     else if (command == 'join' || command == 'j') {
 
         if (args.length > 0) {
-            let errorEmbed = new Discord.MessageEmbed()
-            .setColor('#9c2c24')
-            .setTitle('Error: Too many Arguments')
-            .setDescription(`Use just ${prefix}j`)
-            return m.channel.send(errorEmbed)
+            return m.channel.send(new Discord.MessageEmbed()
+                .setColor(embedColors.black)
+                .setDescription(`Too many args: Use just ${prefix}j`))
         }
-
-        if(inGame(m.author.id)) return m.channel.send("You are already in a game")
+        if(inGame(m.author.id)) {
+            return m.channel.send(new Discord.MessageEmbed()
+                .setColor(embedColors.black)
+                .setDescription("You are already in a game"))
+        }
 
         tagQueues[m.channel.id].push(m.author.id)
         tagQueueJoins[m.author.id] = [Date.now(), m.channel.id]
 
-        /**const embed = new Discord.MessageEmbed()
-        .setColor('#00BF00')
-        .setAuthor(`${m.author.tag}`, `https://cdn.discordapp.com/avatars/${m.author.id}/${m.author.avatar}?size=128`)
-        .setTitle(`Success! Channel Configured`)
-        .setTimestamp()
-        .setFooter(embedFooter.text[randInt(0, embedFooter.text.length - 1)], embedFooter.image.green)
-        .addField(`__Default Game:__`, configurationTool[args[0]], true)
-        .addField(`__Bot Prefix:__`, args[1], true)
-        return m.channel.send(embed)*/
-
-        let outputEmbed = new Discord.MessageEmbed()
-        .setColor('#3bcc71')
-        .setDescription(`[${tagQueues[m.channel.id].length}/${tagQueueLimits[m.channel.id]*2}] <@!${m.author.id}> joined the queue.`)
-
-        m.channel.send(outputEmbed)
+        if (tagQueues[m.channel.id].length == 1) {
+            m.channel.send(new Discord.MessageEmbed()
+                .setColor(embedColors.green)
+                .setDescription(`[${tagQueues[m.channel.id].length}/${tagQueueLimits[m.channel.id]*2}] <@!${m.author.id}> created a new game.`))
+        }
+        else {
+            m.channel.send(new Discord.MessageEmbed()
+                .setColor(embedColors.green)
+                .setDescription(`[${tagQueues[m.channel.id].length}/${tagQueueLimits[m.channel.id]*2}] <@!${m.author.id}> joined the game.`))
+        }
 
         if(tagQueues[m.channel.id].length > tagQueueLimits[m.channel.id]*2-1) {
             let gameCounters = await JSON.parse(fs.readFileSync('tagGameCounts.json'))
             gameCounters[m.channel.id] = gameCounters[m.channel.id] + 1
             fs.writeFileSync('tagGameCounts.json', JSON.stringify(gameCounters))
 
-            let outputEmbed = new Discord.MessageEmbed()
-            .setColor('#3498db')
-            .setTitle(`Game #${gameCounters[m.channel.id]}`)
-            .setDescription(`**Creation Time:** ${timeConverter(Math.floor(Date.now()/1000))}
-**Lobby:** <#${m.channel.id}>`)
             var teams = await generateTagTeams(tagQueues[m.channel.id], tagQueueLimits[m.channel.id])
             var aString = ""
             var bString = ""
@@ -430,171 +521,319 @@ Creator: `
             for (let g = 0; g < teams.B.length; g++) {
                 bString = `${bString}\n<@!${teams.B[g]}>`
             }
-
-            outputEmbed.addField('**Team 1**', aString)
-            .addField('**Team 2**', bString)
             let outputPingText = "";
             for (let j = 0; j < tagQueues[m.channel.id].length; j++) {
                 outputPingText = `${outputPingText}<@!${tagQueues[m.channel.id][j]}> `
             }
-            m.channel.send(outputPingText, {embed: outputEmbed})
+
             tagQueues[m.channel.id] = []
+            return m.channel.send(outputPingText, {embed: new Discord.MessageEmbed()
+                .setColor(embedColors.blue)
+                .setTitle(`Game #${gameCounters[m.channel.id]}`)
+                .setDescription(`**Creation Time:** ${timeConverter(Math.floor(Date.now()/1000))}\n**Lobby:** <#${m.channel.id}>`)
+                .addField('**Team 1**', aString)
+                .addField('**Team 2**', bString)
+            })
         }
     }
     else if (command == "setplayercount") {
         if (m.channel.id !== tagConfig.teamChannelID) return;
 
-        if (!m.author.id !== tagQueues[m.channel.id][0]) return m.channel.send("You did not create this game")
-        if (!args[0].isFinite()) return m.channel.send("Specify a numebr")
+        if (!tagQueues[m.channel.id].includes(m.author.id)) {
+            return m.channel.send(new Discord.MessageEmbed()
+                .setColor(embedColors.black)
+                .setDescription(`You are not in the game.`))
+        }
 
-        tagQueueLimits[m.channel.id] = args[0]
+        if (m.author.id !== tagQueues[m.channel.id][0]) {
+            return m.channel.send(new Discord.MessageEmbed()
+                .setColor(embedColors.black)
+                .setDescription(`Only the game creator, <@!${tagQueues[m.channel.id][0]}>, can do this.`))
+        }
+
+        if (!isFinite(args[0])) {
+            return m.channel.send(new Discord.MessageEmbed()
+                .setColor(embedColors.black)
+                .setDescription("Specify a valid number"))
+        }
+        if (args[0] < 3 || args[0] > 14) {
+            return m.channel.send(new Discord.MessageEmbed()
+                .setColor(embedColors.black)
+                .setDescription("Must be between 1 and 14"))
+        }
+
+        tagQueueLimits[m.channel.id] = Math.floor(args[0])
+        return m.channel.send(new Discord.MessageEmbed()
+                .setColor(embedColors.green)
+                .setDescription(`Players per team set to ${args[0]}`))
     }
     else if (command == "leave" || command == "l") {
         if (args.length > 0) {
-            let errorEmbed = new Discord.MessageEmbed()
-            .setColor('#9c2c24')
-            .setTitle('Error: Too many Arguments')
-            .setDescription(`Use just ${prefix}l`)
-            return m.channel.send(errorEmbed)
+            return m.channel.send(new Discord.MessageEmbed()
+                .setColor(embedColors.black)
+                .setDescription(`Too many args: Use just ${prefix}l`))
         }
 
-        if(!inGame(m.author.id)) return m.channel.send("You are not in any game")
+        if(!inGame(m.author.id)) {
+            return m.channel.send(new Discord.MessageEmbed()
+                .setColor(embedColors.black)
+                .setDescription(`You are not in any game`))
+        }
 
         if (tagQueues[m.channel.id].indexOf(m.author.id) > -1) {
-            tagQueues[m.channel.id].splice(tagQueues[m.channel.id].indexOf(m.author.id))
-            return m.channel.send("You have left the game")
+            tagQueues[m.channel.id].splice(tagQueues[m.channel.id].indexOf(m.author.id), 1)
+            return m.channel.send(new Discord.MessageEmbed()
+                .setColor(embedColors.red)
+                .setDescription(`[${tagQueues[m.channel.id].length}/${tagQueueLimits[m.channel.id]*2}] <@!${m.author.id}> has left the game.`))
         }
         else {
-            return m.channel.send("You are not in *this* game")
+            return m.channel.send(new Discord.MessageEmbed()
+                .setColor(embedColors.black)
+                .setDescription(`You are not in this game`))
         }
     }
 
     if (command == "party" || command == "p") {
         if (args[0] == "invite" || args[0] == "i") {
             if (m.mentions.users.size == 0) {
-                return m.channel.send("No users in the guild were specified")
+                return m.channel.send(new Discord.MessageEmbed()
+                    .setColor(embedColors.black)
+                    .setDescription("Please mention the user(s) you are attempting to invite"))
             }
-            if (inParty(m.author.id) && !(m.author.id in tagQueues)) return m.channel.send("Insufficient Permissions")
+            if (inParty(m.author.id) && !(m.author.id in tagParties)) {
+                return m.channel.send(new Discord.MessageEmbed()
+                .setColor(embedColors.black)
+                .setDescription(`Only the party leader can do this.`))
+            }
             let tagGuild = await tagClient.guilds.cache.get(tagConfig.tagGuildID)
             m.mentions.users.forEach(async (pinged) => {
-                if (pinged.bot) { return m.channel.send("You cant invite bots!") }
-                if (pinged.id == m.author.id) return m.channel.send("You cant invite yourself!")
+                if (pinged.bot) {
+                    return m.channel.send(new Discord.MessageEmbed()
+                        .setColor(embedColors.black)
+                        .setDescription("You can't invite bots!"))
+                }
+                if (pinged.id == m.author.id) {
+                    return m.channel.send(new Discord.MessageEmbed()
+                        .setColor(embedColors.black)
+                        .setDescription("You can't invite yourself!"))
+                }
                 if (!(memberExistsInTagGuild(tagClient.guilds.cache.get(tagConfig.tagGuildID), pinged.id))) {
-                    return m.channel.send(`Player <@!${pinged.id}> is not in the guild :(`)
+                    return m.channel.send(new Discord.MessageEmbed()
+                        .setColor(embedColors.black)
+                        .setDescription(`Could not find player <@!${pinged.id}>!`))
                 }
                 if (inParty(pinged.id)) {
-                    return m.channel.send(`Player ${pinged.tag} is already in a party!`)
+                    return m.channel.send(new Discord.MessageEmbed()
+                        .setColor(embedColors.black)
+                        .setDescription(`Player <@!${pinged.id}> is already in a party!`))
                 }
-                let message = await m.channel.send(`<@!${pinged.id}> Click the check mark below to join <@!${m.author.id}>'s party`)
+                let message = await m.channel.send(`<@!${pinged.id}>`, {embed: new Discord.MessageEmbed()
+                    .setColor(embedColors.blue)
+                    .setDescription(`<@!${pinged.id}> Click the check mark below to join <@!${m.author.id}>'s party`)
+                })
                 tagPartyInvites[message.id] = [m.author.id, pinged.id]
                 await message.react('✅')
                 await message.react('❌')
                 setTimeout(async function () {
-                    messageDeleted = true
+                    var messageDeleted = true
 
-                    let channelMsgDelete = await tagClient.channels.fetch(m.channel.id)
-                    let messageDelete = ""
-                    messageDelete = await channelMsgDelete.messages.fetch(message.id).catch((err) => {return messageDelete = null})
-                    if (!messageDeleted) {
-                        delete tagPartyInvites[message.id]
-                        m.channel.send("Party Invite Expired")
-                        messageDelete.delete()
+                    //let channelMsgDelete = await tagClient.channels.fetch(m.channel.id)
+                    //messageDelete = await channelMsgDelete.messages.fetch(message.id).catch((err) => {return messageDeleted = false})
+                    delete tagPartyInvites[message.id]
+                    message.delete().catch((err) => {
+                        messageDeleted = false
+                    })
+                    if (messageDeleted) {
+                        m.channel.send(new Discord.MessageEmbed()
+                            .setColor(embedColors.red)
+                            .setDescription(`Party Invite Expired`))
                     }
+
                 }, 10 * 1000);
             })
         }
         else if (args[0] == "disband") {
             if (m.author.id in tagParties) {
                 delete tagParties[m.author.id]
-                m.channel.send("You have disbanded the party")
+                return m.channel.send(new Discord.MessageEmbed()
+                    .setColor(embedColors.red)
+                    .setDescription("You have disbanded the party"))
             }
             else if (inParty(m.author.id)) {
-                m.channel.send("You do not have permission")
+                return m.channel.send(new Discord.MessageEmbed()
+                    .setColor(embedColors.black)
+                    .setDescription("Only the party leader can do this"))
             }
-            else {
-                m.channel.send("You are not in a party")
-            }
-            return;
+            return m.channel.send(new Discord.MessageEmbed()
+                .setColor(embedColors.black)
+                .setDescription("You are not in a party"))
         }
         else if (args[0] == "leave") {
-            if (!inParty(m.author.id)) return m.channel.send("You are not in a party")
+            if (!inParty(m.author.id)) {
+                return m.channel.send(new Discord.MessageEmbed()
+                    .setColor(embedColors.black)
+                    .setDescription("You are not in a party"))
+            }
 
             if (m.author.id in tagParties) {
-                m.channel.send(`<@!${m.author.id}> has left the party`)
+                m.channel.send(new Discord.MessageEmbed()
+                    .setColor(embedColors.red)
+                    .setDescription(`<@!${m.author.id}> has left the party`))
                 if (tagParties[m.author.id].length == 1) {
                     delete tagParties[m.author.id]
-                    return m.channel.send(`Party has been disbanded`)
+                    return m.channel.send(new Discord.MessageEmbed()
+                        .setColor(embedColors.black)
+                        .setDescription(`Party has been disbanded`))
                 }
                 else {
                     tagParties[tagParties[m.author.id][0]] = tagParties[m.author.id]
                     tagParties[tagParties[m.author.id][0]].shift()
-                    m.channel.send(`Party ownership has transfered over to ${tagParties[m.author.id][0]}`)
+                    m.channel.send(new Discord.MessageEmbed()
+                        .setColor(embedColors.blue)
+                        .setDescription(`Party ownership has transfered over to <@!${tagParties[m.author.id][0]}>`))
                     return delete tagParties[m.author.id]
-
                 }    
             }
             else {
                 for (let u = 0; u < Object.keys(tagParties); u++) {
                     if (tagParties[Object.keys(tagParties)[u]].includes(m.author.id)) {
-                        tagParties[Object.keys(tagParties)[u]].splice(tagParties[Object.keys(tagParties)[u]].indexOf(m.author.id))
-                        m.channel.send(`<@!${m.author.id}> has left the party`)
+                        tagParties[Object.keys(tagParties)[u]].splice(tagParties[Object.keys(tagParties)[u]].indexOf(m.author.id), 1)
+                        m.channel.send(new Discord.MessageEmbed()
+                            .setColor(embedColors.red)
+                            .setDescription(`<@!${m.author.id}> has left the party`))
                         break;
                     }
                 }
+                return;
             }
         }
         else if (args[0] == "kick") {
-            if (!inParty(m.author.id)) return m.channel.send("You are not in a party")
+            if (!inParty(m.author.id)) {
+                return m.channel.send(new Discord.MessageEmbed()
+                    .setColor(embedColors.black)
+                    .setDescription("You are not in a party"))
+            }
 
-            if (!(m.author.id in tagParties)) {
-                return m.channel.send("You do not have permission")
+            if (inParty(m.author.id) && !(m.author.id in tagParties)) {
+                return m.channel.send(new Discord.MessageEmbed()
+                    .setColor(embedColors.black)
+                    .setDescription("Only the party leader can do this"))
             }
 
             m.mentions.users.forEach(async (pinged) => {
-                if (!tagParties[m.author.id].includes(pinged.id)) return m.channel.send("Player is not in the party")
+                if (!tagParties[m.author.id].includes(pinged.id)) {
+                    return m.channel.send(new Discord.MessageEmbed()
+                        .setColor(embedColors.black)
+                        .setDescription("Player is not in the party"))
+                }
 
-                tagParties[m.author.id].splice(tagParties[m.author.id].indexOf(pinged.id))
-                m.channel.send(`<@!${pinged.id}> was kicked from the party`)
+                tagParties[m.author.id].splice(tagParties[m.author.id].indexOf(pinged.id), 1)
+                m.channel.send(new Discord.MessageEmbed()
+                    .setColor(embedColors.red)
+                    .setDescription(`<@!${pinged.id}> was kicked from the party`))
             })
 
             if (tagParties[m.author.id].length == 0) {
                 delete tagParties[m.author.id]
-                return m.channel.send(`Party has been disbanded`)
+                return m.channel.send(new Discord.MessageEmbed()
+                    .setColor(embedColors.black)
+                    .setDescription(`Party has been disbanded`))
             }
         }
         else if (args[0] == "list") {
-            if (!inParty(m.author.id)) return m.channel.send("You are not in a party")
-
+            if (!inParty(m.author.id)) {
+                return m.channel.send(new Discord.MessageEmbed()
+                    .setColor(embedColors.black)
+                    .setDescription("You are not in a party"))
+            }
             if (m.author.id in tagParties) {
-                responseOutput = await m.channel.send(`Loading...`)
-                response = `**Party Owner**
-<@!${m.author.id}>
-
-**Party Members**`
+                response = ""
                 for (let i = 0; i < tagParties[m.author.id].length; i++) {
-                    response = `${response}\n<@!${tagParties[m.author.id][i]}>`
+                    response = `${response}<@!${tagParties[m.author.id][i]}>\n`
                 }
 
-                responseOutput.edit(response)
+                return m.channel.send(new Discord.MessageEmbed()
+                    .setColor(embedColors.blue)
+                    .setTitle('**Party List**')
+                    .setDescription(`**Owner:** <@!${m.author.id}>
+**Party Members:** ${response}`))
             }
             else {
                 tagPartiesKeys = Object.keys(tagParties)
                 for (let u = 0; u < tagPartiesKeys; u++) {
                     if (tagParties[tagPartiesKeys[u]].includes(m.author.id)) {
-                        responseOutput = await m.channel.send(`Loading...`)
-                        response = `**Party Owner**
-<@!${tagPartiesKeys[u]}>
-        
-**Party Members**`
+                        response = ""
                         for (let i = 0; i < tagParties[tagPartiesKeys[u]].length; i++) {
                             response = `${response}\n<@!${tagParties[tagPartiesKeys[u]][i]}>`
                         }
-        
-                        responseOutput.edit(response)
+                        m.channel.send(new Discord.MessageEmbed()
+                            .setColor(embedColors.blue)
+                            .setTitle('**Party List**')
+                            .setDescription(`**Owner:** <@!${tagPartiesKeys[u]}>
+**Party Members:** ${response}`))
                         break;
                     }
                 }
             }
+        }
+        else {
+            if (m.mentions.users.size == 0) {
+                return m.channel.send(new Discord.MessageEmbed()
+                    .setColor(embedColors.black)
+                    .setDescription("Please mention the user(s) you are attempting to invite"))
+            }
+            if (inParty(m.author.id) && !(m.author.id in tagParties)) {
+                return m.channel.send(new Discord.MessageEmbed()
+                .setColor(embedColors.black)
+                .setDescription(`Only the party leader can do this.`))
+            }
+            let tagGuild = await tagClient.guilds.cache.get(tagConfig.tagGuildID)
+            m.mentions.users.forEach(async (pinged) => {
+                if (pinged.bot) {
+                    return m.channel.send(new Discord.MessageEmbed()
+                        .setColor(embedColors.black)
+                        .setDescription("You can't invite bots!"))
+                }
+                if (pinged.id == m.author.id) {
+                    return m.channel.send(new Discord.MessageEmbed()
+                        .setColor(embedColors.black)
+                        .setDescription("You can't invite yourself!"))
+                }
+                if (!(memberExistsInTagGuild(tagClient.guilds.cache.get(tagConfig.tagGuildID), pinged.id))) {
+                    return m.channel.send(new Discord.MessageEmbed()
+                        .setColor(embedColors.black)
+                        .setDescription(`Could not find player <@!${pinged.id}>!`))
+                }
+                if (inParty(pinged.id)) {
+                    return m.channel.send(new Discord.MessageEmbed()
+                        .setColor(embedColors.black)
+                        .setDescription(`Player <@!${pinged.id}> is already in a party!`))
+                }
+                let message = await m.channel.send(`<@!${pinged.id}>`, {embed: new Discord.MessageEmbed()
+                    .setColor(embedColors.blue)
+                    .setDescription(`<@!${pinged.id}> Click the check mark below to join <@!${m.author.id}>'s party`)
+                })
+                tagPartyInvites[message.id] = [m.author.id, pinged.id]
+                await message.react('✅')
+                await message.react('❌')
+                setTimeout(async function () {
+                    console.log("Delete it")
+                    var messageDeleted = true
+
+                    //let channelMsgDelete = await tagClient.channels.fetch(m.channel.id)
+                    //messageDelete = await channelMsgDelete.messages.fetch(message.id).catch((err) => {return messageDeleted = false})
+                    delete tagPartyInvites[message.id]
+                    message.delete().catch((err) => {
+                        messageDeleted = false
+                    })
+                    if (messageDeleted) {
+                        m.channel.send(new Discord.MessageEmbed()
+                            .setColor(embedColors.red)
+                            .setDescription(`Party Invite Expired`))
+                    }
+
+                }, 10 * 1000);
+            })
         }
     }
 })
@@ -615,22 +854,27 @@ tagClient.on('messageReactionAdd', async (reaction, user) => {
             reaction.message.delete()
             if (inParty(user.id)) {
                 delete tagPartyInvites[reaction.message.id]
-                return reaction.message.channel.send("You are already in a party")
+                return reaction.message.channel.send(new Discord.MessageEmbed()
+                    .setColor(embedColors.black)
+                    .setDescription("You are already in a party"))
             }
-            reaction.message.channel.send(`<@!${user.id}> has joined <@!${tagPartyInvites[reaction.message.id][0]}>'s party`)
             if (tagPartyInvites[reaction.message.id][0] in tagParties) {
                 tagParties[tagPartyInvites[reaction.message.id][0]].push(user.id)
             }
             else {
                 tagParties[tagPartyInvites[reaction.message.id][0]] = [user.id]
             }
-            console.log(tagParties)
-            delete tagPartyInvites[reaction.message.id]
+            reaction.message.channel.send(new Discord.MessageEmbed()
+                    .setColor(embedColors.green)
+                    .setDescription(`<@!${user.id}> has joined <@!${tagPartyInvites[reaction.message.id][0]}>'s party`))
+            return delete tagPartyInvites[reaction.message.id]
         }
         else if (reaction.emoji.name === '❌') {
             reaction.message.delete()
             delete tagPartyInvites[reaction.message.id]
-            reaction.message.channel.send(`Sorry! <@!${user.id}> isn't interested!`)
+            return reaction.message.channel.send(new Discord.MessageEmbed()
+                    .setColor(embedColors.green)
+                    .setDescription(`Sorry! <@!${user.id}> isn't interested!`))
         }
         return
     }
