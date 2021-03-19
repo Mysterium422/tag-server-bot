@@ -159,7 +159,7 @@ function inGame(player) {
 }
 
 function timeConverter(UNIX_timestamp){
-    var a = new Date(UNIX_timestamp * 1000);
+    var a = new Date(UNIX_timestamp);
     var months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
     var year = a.getFullYear();
     var month = months[a.getMonth()];
@@ -169,15 +169,14 @@ function timeConverter(UNIX_timestamp){
     var sec = a.getSeconds() < 10 ? '0' + a.getSeconds() : a.getSeconds()
     var time = date + ' ' + month + ' ' + year + ' ' + hour + ':' + min + ':' + sec ;
     return time;
-  }
-  console.log(timeConverter(0));
+}
 
 tagClient.on('ready', async () => {
     console.log('Bot: Tag Server Bot is online!');
     tagClient.user.setActivity("TNT Tag");
 
     schedule.scheduleJob('0 0 * * * *', async function() {
-        
+
         console.log("Updating Tag ppl")
 
         let tagGuild = await tagClient.guilds.cache.get(tagConfig.tagGuildID)
@@ -191,13 +190,13 @@ tagClient.on('ready', async () => {
                 if (tagMember.roles.cache.has(tagConfig.yellowCardRoleID)) {
                     tagMember.roles.remove(yellowCardRole)
                     delete penaltiesGiven[penaltiesGivenKeys[k]]
-                }
+            }
+            if (Date.now() - penaltiesGiven[penaltiesGivenKeys[k]] > 6 * 7 * 24 * 60 * 60 * 1000) {
                 if (tagMember.roles.cache.has(tagConfig.redCardRoleID)) {
-                    if (Date.now() - penaltiesGiven[penaltiesGivenKeys[k]] > 6 * 7 * 24 * 60 * 60 * 1000) {
-                        tagMember.roles.remove(redCardRole)
-                        delete penaltiesGiven[penaltiesGivenKeys[k]]
-                    }
+                    tagMember.roles.remove(redCardRole)
                 }
+                delete penaltiesGiven[penaltiesGivenKeys[k]]
+            }
             }
         }
         fs.writeFileSync('penalties.json', JSON.stringify(penaltiesGiven))
@@ -225,11 +224,12 @@ tagClient.on('message', async m => {
     if(m.author.bot) return;
 
     if(m.channel.id == tagConfig.ignChannelID) {
+        console.log(m.author.username+": " + m.content)
         m.member.setNickname(m.content).catch(() => m.channel.send("I need permissions"))
         return
     }
 
-    var prefix = "."
+    var prefix = "="
     if(!m.content.startsWith(prefix)) return
 
     var args = m.content.toLowerCase().slice(prefix.length).split(' ');
@@ -258,8 +258,12 @@ tagClient.on('message', async m => {
     **${prefix}green {user mention}** - Removes all penalties from the specified user
     **${prefix}yellow {user mention}** - Gives the specified user a yellow card. If they already have a yellow card, they get a red one
     **${prefix}red {user mention}** - Gives the specified user a red card.
+    **${prefix}status** - Gives a list of all those with penalty cards and when they expire.
+    **${prefix}forcejoin {user mention}** - Forces a user to join that game
+    **${prefix}forcekick {user mention}** - Force Kicks a user out of that game
     *Cards are automatically taken away when they expire.*`)
-            .setTimestamp())
+            .setTimestamp()
+            .setFooter("TNT Tag Bot created by Mysterium_"))
         }
         else {
             return m.channel.send(new Discord.MessageEmbed()
@@ -276,7 +280,8 @@ tagClient.on('message', async m => {
     **${prefix}p list** - List all players in your party
     **${prefix}p disband** - Disband the party (party owner only)
     *You have a much higher chance to be with players in the same party. Both players need to join separately, however*`)
-            .setTimestamp())
+            .setTimestamp()
+            .setFooter("TNT Tag Bot created by Mysterium_"))
         }
     }
     else if (command == "yellow") {
@@ -303,7 +308,7 @@ tagClient.on('message', async m => {
         let yellowCardRole = await tagGuild.roles.cache.get(tagConfig.yellowCardRoleID)
         let redCardRole = await tagGuild.roles.cache.get(tagConfig.redCardRoleID)
         m.mentions.members.forEach(async (pinged) => {
-            if (pinged.bot) {
+            if (pinged.user.bot) {
                 return m.channel.send(new Discord.MessageEmbed()
                     .setColor(embedColors.black)
                     .setDescription(`I refuse to penalize my own kind (<@!${pinged.id}>)!`))
@@ -355,7 +360,7 @@ tagClient.on('message', async m => {
         let yellowCardRole = await tagGuild.roles.cache.get(tagConfig.yellowCardRoleID)
         let redCardRole = await tagGuild.roles.cache.get(tagConfig.redCardRoleID)
         m.mentions.members.forEach(async (pinged) => {
-            if (pinged.bot) { 
+            if (pinged.user.bot) { 
                 return m.channel.send(new Discord.MessageEmbed()
                     .setColor(embedColors.black)
                     .setDescription(`I refuse to penalize my own kind (<@!${pinged.id}>)!`))
@@ -399,24 +404,26 @@ tagClient.on('message', async m => {
         let yellowCardRole = await tagGuild.roles.cache.get(tagConfig.yellowCardRoleID)
         let redCardRole = await tagGuild.roles.cache.get(tagConfig.redCardRoleID)
         m.mentions.members.forEach(async (pinged) => {
-            if (pinged.bot) {
-                return m.channel.send(new Discord.MessageEmbed()
-                    .setColor(embedColors.black)
-                    .setDescription(`I refuse to penalize my own kind (<@!${pinged.id}>)!`))
-            }
             if (!(memberExistsInTagGuild(tagClient.guilds.cache.get(tagConfig.tagGuildID), pinged.id))) {
                 return m.channel.send(new Discord.MessageEmbed()
                     .setColor(embedColors.black)
                     .setDescription(`Could not find player <@!${pinged.id}>!`))
             }
-            pinged.roles.remove(yellowCardRole)
-            pinged.roles.remove(redCardRole)
-            penaltiesGiven = JSON.parse(fs.readFileSync('penalties.json'))
-            delete penaltiesGiven[pinged.id]
-            fs.writeFileSync('penalties.json', JSON.stringify(penaltiesGiven))
-            return m.channel.send(new Discord.MessageEmbed()
-                .setColor(embedColors.green)
-                .setDescription(`Removed all penalties from <@!${pinged.id}>`))
+            if (pinged.roles.cache.has(tagConfig.yellowCardRoleID) || pinged.roles.cache.has(tagConfig.redCardRoleID)) {
+                pinged.roles.remove(yellowCardRole)
+                pinged.roles.remove(redCardRole)
+                penaltiesGiven = JSON.parse(fs.readFileSync('penalties.json'))
+                delete penaltiesGiven[pinged.id]
+                fs.writeFileSync('penalties.json', JSON.stringify(penaltiesGiven))
+                return m.channel.send(new Discord.MessageEmbed()
+                    .setColor(embedColors.green)
+                    .setDescription(`Removed all penalties from <@!${pinged.id}>`))
+            }
+            else {
+                return m.channel.send(new Discord.MessageEmbed()
+                    .setColor(embedColors.green)
+                    .setDescription(`<@!${pinged.id}> had no penalties to remove`))
+            }
         })
     }
     else if (command == "status") {
@@ -426,40 +433,64 @@ tagClient.on('message', async m => {
 
         var penaltyJson = JSON.parse(fs.readFileSync('penalties.json'))
         var penaltyJSONArray = []
+
+        
         let tagGuild = await tagClient.guilds.cache.get(tagConfig.tagGuildID)
 
         for (player in penaltyJson) {
-            let tagMember = await tagGuild.members.fetch(player)
+            let tagMember = await tagGuild.members.fetch(player).catch(() => {return "continue"})
+            if (tagMember == "continue") {
+                continue;
+            }
             var cardName = ""
-            if (tagMember.roles.cache.hasRole(config.redCardRoleID)) {
+            if (tagMember.roles.cache.has(tagConfig.redCardRoleID)) {
                 cardName = "red"
             }
-            else if (tagMember.roles.cache.hasRole(config.yellowCardRoleID)) {
+            else if (tagMember.roles.cache.has(tagConfig.yellowCardRoleID)) {
                 cardName = "yellow"
             }
             else {
-                delete penaltyJson[player]
                 continue
             }
             penaltyJSONArray.push({id:player, time:penaltyJson[player], card:cardName})
         }
+
+        if (penaltyJson == {}) {
+            return  m.channel.send(new Discord.MessageEmbed()
+                .setColor(embedColors.blue)
+                .setDescription("No cards found"))
+        }
+
         penaltyJSONArray = penaltyJSONArray.sort((a, b) => {
             return a.time - b.time
         })
+
         var res = ""
-        for (let r = 0; r < penaltyJSONArray.filter((a) => {return a.card == "red"}).length; r++) {
-            res = `${res}\n:red_square: <@!${penaltyJSONArray[r].id}> ${timeConverter(penaltyJSONArray.time + 6 * 7 * 24 * 60 * 60 * 1000)}`
+        var penaltyJSONArrayRed = penaltyJSONArray.filter((a) => {return a.card == "red"})
+        var penaltyJSONArrayYellow = penaltyJSONArray.filter((a) => {return a.card == "yellow"})
+        for (let r = 0; r < penaltyJSONArrayRed.length; r++) {
+            res = `${res}\n:red_square: <@!${penaltyJSONArrayRed[r].id}> ${timeConverter(penaltyJSONArrayRed[r].time + 6 * 7 * 24 * 60 * 60 * 1000)}`
         }
         res = `${res}\n`
-        for (let r = 0; r < penaltyJSONArray.filter((a) => {return a.card == "yellow"}).length; r++) {
-            res = `${res}\n:yellow_square: <@!${penaltyJSONArray[r].id}> ${timeConverter(penaltyJSONArray.time + 4 * 7 * 24 * 60 * 60 * 1000)}`
+        for (let r = 0; r < penaltyJSONArrayYellow.length; r++) {
+            res = `${res}\n:yellow_square: <@!${penaltyJSONArrayYellow[r].id}> ${timeConverter(penaltyJSONArrayYellow[r].time + 4 * 7 * 24 * 60 * 60 * 1000)}`
         }
         res = `${res}\n*All Dates are when the penalties will expire (be removed)`
 
         m.channel.send(new Discord.MessageEmbed()
             .setColor(embedColors.blue)
-            .setTitle("**Penalty Status Board")
+            .setTitle("**Penalty Status Board**")
             .setDescription(res))
+        fs.writeFileSync('penalties.json', JSON.stringify(penaltyJson))
+    }
+    else if (command == "signup") {
+        var fileString = fs.readFileSync('signups.txt')
+        
+        if (m.mentions.users.size == 0) {
+            return m.channel.send(new Discord.MessageEmbed()
+                .setColor(embedColors.black)
+                .setDescription("Please mention the user(s) you are attempting to remove cards from"))
+        }
     }
 
     let tagChannels = [tagConfig.soloChannelID, tagConfig.duoChannelID, tagConfig.teamChannelID]
@@ -530,7 +561,7 @@ tagClient.on('message', async m => {
             return m.channel.send(outputPingText, {embed: new Discord.MessageEmbed()
                 .setColor(embedColors.blue)
                 .setTitle(`Game #${gameCounters[m.channel.id]}`)
-                .setDescription(`**Creation Time:** ${timeConverter(Math.floor(Date.now()/1000))}\n**Lobby:** <#${m.channel.id}>`)
+                .setDescription(`**Creation Time:** ${timeConverter(Math.floor(Date.now()))}\n**Lobby:** <#${m.channel.id}>`)
                 .addField('**Team 1**', aString)
                 .addField('**Team 2**', bString)
             })
@@ -559,7 +590,7 @@ tagClient.on('message', async m => {
         if (args[0] < 3 || args[0] > 14) {
             return m.channel.send(new Discord.MessageEmbed()
                 .setColor(embedColors.black)
-                .setDescription("Must be between 1 and 14"))
+                .setDescription("Must be between 3 and 14"))
         }
 
         tagQueueLimits[m.channel.id] = Math.floor(args[0])
@@ -592,8 +623,129 @@ tagClient.on('message', async m => {
                 .setDescription(`You are not in this game`))
         }
     }
+    else if (command == "forcejoin") {
 
-    if (command == "party" || command == "p") {
+        if (!(m.member.roles.cache.has(tagConfig.adminRoleID) || m.member.roles.cache.has(tagConfig.moderatorRoleID) || m.member.roles.cache.has(tagConfig.helperRoleID))) {
+            return;
+        }
+
+        if (m.mentions.members.size == 0) {
+            return m.channel.send(new Discord.MessageEmbed()
+                .setColor(embedColors.black)
+                .setDescription("Please mention the user you are attempting to force-join"))
+        }
+
+        if (m.mentions.members.size > 1) {
+            return m.channel.send(new Discord.MessageEmbed()
+                .setColor(embedColors.black)
+                .setDescription("I can only force-join one user at a time"))
+        }
+
+        pinged = m.mentions.members.first()
+
+        if (pinged.user.bot) {
+            return m.channel.send(new Discord.MessageEmbed()
+                .setColor(embedColors.black)
+                .setDescription(`Bots can't join/leave games!`))
+        }
+
+        if(inGame(pinged.id)) {
+            return m.channel.send(new Discord.MessageEmbed()
+                .setColor(embedColors.black)
+                .setDescription(`Player <@!${pinged.id}> is already in a game`))
+        }
+
+        tagQueues[m.channel.id].push(pinged.id)
+        tagQueueJoins[pinged.id] = [Date.now(), m.channel.id]
+
+        if (tagQueues[m.channel.id].length == 1) {
+            m.channel.send(new Discord.MessageEmbed()
+                .setColor(embedColors.green)
+                .setDescription(`[${tagQueues[m.channel.id].length}/${tagQueueLimits[m.channel.id]*2}] <@!${pinged.id}> created a new game.`))
+        }
+        else {
+            m.channel.send(new Discord.MessageEmbed()
+                .setColor(embedColors.green)
+                .setDescription(`[${tagQueues[m.channel.id].length}/${tagQueueLimits[m.channel.id]*2}] <@!${pinged.id}> joined the game.`))
+        }
+
+        if(tagQueues[m.channel.id].length > tagQueueLimits[m.channel.id]*2-1) {
+            let gameCounters = await JSON.parse(fs.readFileSync('tagGameCounts.json'))
+            gameCounters[m.channel.id] = gameCounters[m.channel.id] + 1
+            console.log(gameCounters)
+            fs.writeFileSync('tagGameCounts.json', JSON.stringify(gameCounters))
+
+            var teams = await generateTagTeams(tagQueues[m.channel.id], tagQueueLimits[m.channel.id])
+            var aString = ""
+            var bString = ""
+            for (let g = 0; g < teams.A.length; g++) {
+                aString = `${aString}\n<@!${teams.A[g]}>`
+            }
+            for (let g = 0; g < teams.B.length; g++) {
+                bString = `${bString}\n<@!${teams.B[g]}>`
+            }
+            let outputPingText = "";
+            for (let j = 0; j < tagQueues[m.channel.id].length; j++) {
+                outputPingText = `${outputPingText}<@!${tagQueues[m.channel.id][j]}> `
+            }
+
+            tagQueues[m.channel.id] = []
+            return m.channel.send(outputPingText, {embed: new Discord.MessageEmbed()
+                .setColor(embedColors.blue)
+                .setTitle(`Game #${gameCounters[m.channel.id]}`)
+                .setDescription(`**Creation Time:** ${timeConverter(Math.floor(Date.now()))}\n**Lobby:** <#${m.channel.id}>`)
+                .addField('**Team 1**', aString)
+                .addField('**Team 2**', bString)
+            })
+        }        
+    }
+
+    else if (command == "forcekick") {
+
+        if (!(m.member.roles.cache.has(tagConfig.adminRoleID) || m.member.roles.cache.has(tagConfig.moderatorRoleID) || m.member.roles.cache.has(tagConfig.helperRoleID))) {
+            return;
+        }
+
+        if (m.mentions.members.size == 0) {
+            return m.channel.send(new Discord.MessageEmbed()
+                .setColor(embedColors.black)
+                .setDescription("Please mention the user you are attempting to force-kick"))
+        }
+
+        if (m.mentions.members.size > 1) {
+            return m.channel.send(new Discord.MessageEmbed()
+                .setColor(embedColors.black)
+                .setDescription("I can only force-kick one user at a time"))
+        }
+
+        pinged = m.mentions.members.first()
+
+        if (pinged.user.bot) {
+            return m.channel.send(new Discord.MessageEmbed()
+                .setColor(embedColors.black)
+                .setDescription(`Bots can't join/leave games!`))
+        }
+
+        if(!inGame(pinged.id)) {
+            return m.channel.send(new Discord.MessageEmbed()
+                .setColor(embedColors.black)
+                .setDescription(`Player <@!${pinged.id}> is not in any game`))
+        }
+
+        if (tagQueues[m.channel.id].indexOf(pinged.id) > -1) {
+            tagQueues[m.channel.id].splice(tagQueues[m.channel.id].indexOf(pinged.id), 1)
+            return m.channel.send(new Discord.MessageEmbed()
+                .setColor(embedColors.red)
+                .setDescription(`[${tagQueues[m.channel.id].length}/${tagQueueLimits[m.channel.id]*2}] <@!${pinged.id}> has left the game.`))
+        }
+        else {
+            return m.channel.send(new Discord.MessageEmbed()
+                .setColor(embedColors.black)
+                .setDescription(`You are not in this game`))
+        }
+    }
+
+    else if (command == "party" || command == "p") {
         if (args[0] == "invite" || args[0] == "i") {
             if (m.mentions.users.size == 0) {
                 return m.channel.send(new Discord.MessageEmbed()
@@ -635,19 +787,19 @@ tagClient.on('message', async m => {
                 await message.react('✅')
                 await message.react('❌')
                 setTimeout(async function () {
-                    var messageDeleted = true
 
-                    //let channelMsgDelete = await tagClient.channels.fetch(m.channel.id)
-                    //messageDelete = await channelMsgDelete.messages.fetch(message.id).catch((err) => {return messageDeleted = false})
                     delete tagPartyInvites[message.id]
-                    message.delete().catch((err) => {
-                        messageDeleted = false
-                    })
-                    if (messageDeleted) {
-                        m.channel.send(new Discord.MessageEmbed()
+
+                    let channelMsgDelete = await tagClient.channels.fetch(m.channel.id)
+                    messageDelete = await channelMsgDelete.messages.fetch(message.id).catch((err) => {return "ERROR"})
+                    
+                    if (messageDelete != "ERROR") {
+                        message.edit(new Discord.MessageEmbed()
                             .setColor(embedColors.red)
-                            .setDescription(`Party Invite Expired`))
+                            .setDescription(`Party Invite Expired`), )
+                        message.reactions.cache.forEach(reaction => reaction.remove('820677045603270696'))
                     }
+                    return
 
                 }, 10 * 1000);
             })
@@ -817,20 +969,19 @@ tagClient.on('message', async m => {
                 await message.react('✅')
                 await message.react('❌')
                 setTimeout(async function () {
-                    console.log("Delete it")
-                    var messageDeleted = true
 
-                    //let channelMsgDelete = await tagClient.channels.fetch(m.channel.id)
-                    //messageDelete = await channelMsgDelete.messages.fetch(message.id).catch((err) => {return messageDeleted = false})
                     delete tagPartyInvites[message.id]
-                    message.delete().catch((err) => {
-                        messageDeleted = false
-                    })
-                    if (messageDeleted) {
-                        m.channel.send(new Discord.MessageEmbed()
+
+                    let channelMsgDelete = await tagClient.channels.fetch(m.channel.id)
+                    messageDelete = await channelMsgDelete.messages.fetch(message.id).catch((err) => {return "ERROR"})
+                    
+                    if (messageDelete != "ERROR") {
+                        message.edit(new Discord.MessageEmbed()
                             .setColor(embedColors.red)
-                            .setDescription(`Party Invite Expired`))
+                            .setDescription(`Party Invite Expired`), )
+                        message.reactions.cache.forEach(reaction => reaction.remove('820677045603270696'))
                     }
+                    return
 
                 }, 10 * 1000);
             })
