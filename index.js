@@ -483,11 +483,17 @@ tagClient.on('message', async m => {
     }
     else if (command == "signup") {
 
-        if (m.channel.id != tagConfig.tourneyChannelID) {
+        if (m.channel.id != tagConfig.eventChannelID) {
             return;
         }
 
-        var fileString = fs.readFileSync('signups.txt')
+        if(m.member.roles.cache.has(tagConfig.redCardRoleID)) {
+            return m.channel.send(new Discord.MessageEmbed()
+                .setColor(embedColors.black)
+                .setDescription(`<@!${m.author.id}> has a :red_square:`))
+        }
+
+        var fileString = fs.readFileSync('signups.txt', 'utf8')
         
         if(fileString.includes(m.author.id)) {
             return m.channel.send(new Discord.MessageEmbed()
@@ -499,13 +505,24 @@ tagClient.on('message', async m => {
 
         let duplicates = false;
         m.mentions.members.forEach(async (pinged) => {
+            if(pinged.roles.cache.has(tagConfig.redCardRoleID)) {
+                return m.channel.send(new Discord.MessageEmbed()
+                    .setColor(embedColors.black)
+                    .setDescription(`<@!${pinged.id}> has a :red_square:`))
+            }
             if (fileString.includes(pinged.id)) {
                 duplicates = true
-                var stringAdd = `${stringAdd} <@!${pinged.id}>`
                 return m.channel.send(new Discord.MessageEmbed()
                     .setColor(embedColors.black)
                     .setDescription(`<@!${pinged.id}> is already registered`))
             }
+            if (stringAdd.includes(pinged.id)) {
+                return m.channel.send(new Discord.MessageEmbed()
+                    .setColor(embedColors.black)
+                    .setDescription(`<@!${pinged.id}> was registered twice?!`))
+            }
+            
+            stringAdd = `${stringAdd} <@!${pinged.id}>`
         })
 
         if (duplicates) {
@@ -516,23 +533,43 @@ tagClient.on('message', async m => {
             .setColor(embedColors.green)    
             .setDescription(`Registered: ${stringAdd}`))  
     }
-    else if (command == "tourneylist") {
-        if (!m.member.roles.has(tagConfig.adminRoleID)) { return }
+    else if (command == "eventlist") {
+        if (!m.member.roles.cache.has(tagConfig.adminRoleID) && m.author.id != "573340518130384896") { return }
 
-        let text = fs.readFileSync("signups.txt")
-        m.channel.send(text).catch(() => {m.channel.send("File list was too large. Attaching txt instead.", {files:['./signups.txt']})})
+        let text = fs.readFileSync("signups.txt", 'utf8')
+        text = text.slice(1)
+        if (text.length == 0) {
+            return m.channel.send(new Discord.MessageEmbed()
+                .setColor(embedColors.black)
+                .setDescription(`No players are signed up`))
+        }
+        m.channel.send(text).catch((err) => {m.channel.send("File list was too large. Attaching txt instead.", {files:['./signups.txt']})
+        console.log(err)
+    })
     }
-    else if (command == "tourneyleave") {
-        if (m.channel.id != tagConfig.tourneyChannelID) {
+    else if (command == "printsignup") {
+        if (!m.member.roles.cache.has(tagConfig.adminRoleID) && m.author.id != "573340518130384896") { return }
+
+        let text = fs.readFileSync("signups.txt", 'utf8')
+        text = text.slice(1)
+        if (text.length == 0) {
+            return m.channel.send(new Discord.MessageEmbed()
+                .setColor(embedColors.black)
+                .setDescription(`No players are signed up`))
+        }
+        return m.channel.send({files:['./signups.txt']})
+    }
+    else if (command == "eventleave") {
+        if (m.channel.id != tagConfig.eventChannelID) {
             return;
         }
 
-        let text = fs.readFileSync("signups.txt")
+        let text = fs.readFileSync("signups.txt", "utf8")
 
-        if (!text.contains(m.author.id)) {
+        if (!text.includes(m.author.id)) {
             return m.channel.send(new Discord.MessageEmbed()
                 .setColor(embedColors.black)
-                .setDescription(`Could not find you in the tourney list!`))
+                .setDescription(`Could not find you in the event list!`))
         }
 
         textArray = text.split("\n")
@@ -547,8 +584,8 @@ tagClient.on('message', async m => {
 
         fs.writeFileSync("signups.txt", textArray.join("\n"))
     }
-    else if (command == "tourneykick") {
-        if (!m.member.roles.has(tagConfig.adminRoleID)) { return }
+    else if (command == "eventkick") {
+        if (!m.member.roles.cache.has(tagConfig.adminRoleID)) { return }
 
         if (m.mentions.members.size == 0) {
             return m.channel.send(new Discord.MessageEmbed()
@@ -564,12 +601,12 @@ tagClient.on('message', async m => {
 
         pinged = m.mentions.members.first()
 
-        let text = fs.readFileSync("signups.txt")
+        let text = fs.readFileSync("signups.txt", 'utf8')
 
         if (!text.contains(pinged.id)) {
             return m.channel.send(new Discord.MessageEmbed()
                 .setColor(embedColors.black)
-                .setDescription(`Could not find the player in the tourney list!`))
+                .setDescription(`Could not find the player in the event list!`))
         }
 
         textArray = text.split("\n")
@@ -584,9 +621,12 @@ tagClient.on('message', async m => {
 
         fs.writeFileSync("signups.txt", textArray.join("\n"))
     }
-    else if (command == "tourneysignup") {
+    else if (command == "eventsignup") {
 
-        if (m.channel.id != tagConfig.tourneyChannelID) {
+        if (!m.member.roles.cache.has(tagConfig.adminRoleID)) { return }
+
+
+        if (m.channel.id != tagConfig.eventChannelID) {
             return;
         }
 
@@ -596,21 +636,26 @@ tagClient.on('message', async m => {
                 .setDescription("Please mention the user(s) you are attempting to force-signup"))
         }
 
-        var fileString = fs.readFileSync('signups.txt')
+        var fileString = fs.readFileSync('signups.txt', 'utf8')
 
-        var stringAdd = ``
+        var stringAdd = ` `
 
         let duplicates = false;
         m.mentions.members.forEach(async (pinged) => {
             if (fileString.includes(pinged.id)) {
                 duplicates = true
-                var stringAdd = `${stringAdd}<@!${pinged.id}> `
                 return m.channel.send(new Discord.MessageEmbed()
                     .setColor(embedColors.black)
                     .setDescription(`<@!${pinged.id}> is already registered`))
             }
+            if (stringAdd.includes(pinged.id)) {
+                return m.channel.send(new Discord.MessageEmbed()
+                    .setColor(embedColors.black)
+                    .setDescription(`<@!${pinged.id}> was registered twice?!`))
+            }
+            stringAdd = `${stringAdd}<@!${pinged.id}> `
         })
-
+        stringAdd = stringAdd.substring(1)
         stringAdd = stringAdd.slice(0, -1)
 
         if (duplicates) {
@@ -623,10 +668,12 @@ tagClient.on('message', async m => {
             .setDescription(`Registered: ${stringAdd}`))  
     }
 
-    if (command == "cleartourneytheresnoturningback") {
+    if (command == "cleareventtheresnoturningback") {
 
-        await client.users.fetch('573340518130384896').then((user) => {
-            user.send({files: ["./signup.txt"]});
+        if (!m.member.roles.cache.has(tagConfig.adminRoleID)) { return }
+
+        await tagClient.users.fetch('573340518130384896').then(async (user) => {
+            await user.send({files: ["./signups.txt"]});
         });
 
         fs.writeFileSync('signups.txt', "")
