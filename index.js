@@ -6,10 +6,11 @@ const fs = require('fs');
 const yaml = require('js-yaml')
 const schedule = require('node-schedule');
 const humanizeDuration = require('humanize-duration')
+const { shuffle, randInt, timeConverter } = require('../global/globalUtils.js')
 
 
 // FETCH UNUSED BUT WORKS FOR FUTURE
-const { hypixelFetch, plotzesFetch, fetch } = require('./mystFetch.js')
+const { hypixelFetch, plotzesFetch, fetch } = require('../global/mystFetch.js')
 
 // SETUP CONFIG
 let tagConfig = yaml.loadAll(fs.readFileSync('config.yaml', 'utf8'))[2]
@@ -37,6 +38,11 @@ tagQueueLimits[tagConfig.teamChannelID] = 4;
 var tagParties = {}
 var tagPartyInvites = {}
 var tagQueueJoins = {}
+var tagHalfWayPing = {}
+
+String.prototype.contains = function(substring) {
+    return this.indexOf(substring) !== -1
+};
 
 async function memberExistsInTagGuild(guild, id) {
     var exists = true;
@@ -66,7 +72,7 @@ async function generateTagTeams(players, limit) {
 
     for (party in partiedPlayers) {
         let APossible = (limit - teamA.length >= partiedPlayers[party].length)
-        let BPossible = (limit = teamB.length >= partiedPlayers[party].length)
+        let BPossible = (limit - teamB.length >= partiedPlayers[party].length)
 
         if (APossible && BPossible) {
             if (randInt(1, 2) == 1) {
@@ -93,7 +99,6 @@ async function generateTagTeams(players, limit) {
         }
     }
 
-
     nonPartiedPlayers = shuffle(nonPartiedPlayers)
 
     teamA = teamA.concat(nonPartiedPlayers.splice(0, limit - teamA.length))
@@ -103,28 +108,9 @@ async function generateTagTeams(players, limit) {
     return {"A":teamA, "B":teamB}
 }
 
-function shuffle(array) {
-    var currentIndex = array.length, temporaryValue, randomIndex;
-  
-    // While there remain elements to shuffle...
-    while (0 !== currentIndex) {
-  
-      // Pick a remaining element...
-      randomIndex = Math.floor(Math.random() * currentIndex);
-      currentIndex -= 1;
-  
-      // And swap it with the current element.
-      temporaryValue = array[currentIndex];
-      array[currentIndex] = array[randomIndex];
-      array[randomIndex] = temporaryValue;
-    }
-  
-    return array;
-  }
-
-function randInt(min, max) {
+/** function randInt(min, max) {
     return Math.floor(Math.random() * (max - min + 1) + min)
-}
+} */
 
 function findParty(player) {
     if (player in tagParties) return player;
@@ -158,19 +144,6 @@ function inGame(player) {
     return gamePlayers.includes(player)
 }
 
-function timeConverter(UNIX_timestamp){
-    var a = new Date(UNIX_timestamp);
-    var months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-    var year = a.getFullYear();
-    var month = months[a.getMonth()];
-    var date = a.getDate();
-    var hour = a.getHours();
-    var min = a.getMinutes() < 10 ? '0' + a.getMinutes() : a.getMinutes()
-    var sec = a.getSeconds() < 10 ? '0' + a.getSeconds() : a.getSeconds()
-    var time = date + ' ' + month + ' ' + year + ' ' + hour + ':' + min + ':' + sec ;
-    return time;
-}
-
 tagClient.on('ready', async () => {
     console.log('Bot: Tag Server Bot is online!');
     tagClient.user.setActivity("TNT Tag");
@@ -201,7 +174,7 @@ tagClient.on('ready', async () => {
         }
         fs.writeFileSync('penalties.json', JSON.stringify(penaltiesGiven))
     })
-    schedule.scheduleJob('0 */5 * * * *', async function() {
+    schedule.scheduleJob('0 */4 * * * *', async function() {
         
         console.log("Updating Tag ppl (Kicking inactives)")
 
@@ -210,8 +183,25 @@ tagClient.on('ready', async () => {
                 if (tagQueues[tagQueueJoins[user][1]].includes(user)) {
                     let tagChannel = await tagClient.channels.fetch(tagQueueJoins[user][1])
                     tagChannel.send(`<@!${user}> was removed from the queue after remaining in it for over an hour`)
+                    var removeID = user
+                    tagQueues[tagChannel.id].splice(tagQueues[tagChannel.id].indexOf(removeID), 1)
+                    delete tagQueueJoins[user]
                 }
-                delete tagQueueJoins[user]
+            }
+        }
+
+        for (channel in tagHalfWayPing) {
+            if (Date.now() - tagHalfWayPing[channel] > 15 * 60 * 1000) {
+                if (tagQueues[channel].length >= tagQueueLimits[channel]) {
+                    let tagChannel = await tagClient.channels.fetch(channel)
+                    if (channel == tagConfig.soloChannelID) {
+                        tagChannel.send(`<@&825044107830755338>`)
+                    }
+                    else if (channel == tagConfig.duoChannelID) {
+                        tagChannel.send(`<@&825044179084115998>`)
+                    }
+                    delete tagHalfWayPing[channel]
+                }
             }
         }
     })
@@ -223,8 +213,10 @@ tagClient.on('message', async m => {
 
     if(m.author.bot) return;
 
+    //if(m.author.id != "573340518130384896") return;
+
     if(m.channel.id == tagConfig.ignChannelID) {
-        console.log(m.author.username+": " + m.content)
+        console.log(m.author.username+": Set nickname: " + m.content)
         m.member.setNickname(m.content).catch(() => m.channel.send("I need permissions"))
         return
     }
@@ -236,6 +228,12 @@ tagClient.on('message', async m => {
     const command = args.shift().toLowerCase()
 
     console.log(m.author.username+": " + m.content)
+    if (command == "debug") {
+        if(m.author.id != "573340518130384896") return;
+
+        m.channel.send("<@&825044179084115998>")
+    }
+
     if (command == "help") {
 
         if (m.member.roles.cache.has(tagConfig.adminRoleID) || m.member.roles.cache.has(tagConfig.moderatorRoleID)) {
@@ -484,13 +482,158 @@ tagClient.on('message', async m => {
         fs.writeFileSync('penalties.json', JSON.stringify(penaltyJson))
     }
     else if (command == "signup") {
+
+        if (m.channel.id != tagConfig.tourneyChannelID) {
+            return;
+        }
+
         var fileString = fs.readFileSync('signups.txt')
         
-        if (m.mentions.users.size == 0) {
+        if(fileString.includes(m.author.id)) {
             return m.channel.send(new Discord.MessageEmbed()
                 .setColor(embedColors.black)
-                .setDescription("Please mention the user(s) you are attempting to remove cards from"))
+                .setDescription(`<@!${m.author.id}> is already registered`))
         }
+
+        var stringAdd = `<@!${m.author.id}>`
+
+        let duplicates = false;
+        m.mentions.members.forEach(async (pinged) => {
+            if (fileString.includes(pinged.id)) {
+                duplicates = true
+                var stringAdd = `${stringAdd} <@!${pinged.id}>`
+                return m.channel.send(new Discord.MessageEmbed()
+                    .setColor(embedColors.black)
+                    .setDescription(`<@!${pinged.id}> is already registered`))
+            }
+        })
+
+        if (duplicates) {
+            return;
+        }
+        fs.writeFileSync('signups.txt', `${fileString}\n${stringAdd}`)
+        return m.channel.send(new Discord.MessageEmbed()
+            .setColor(embedColors.green)    
+            .setDescription(`Registered: ${stringAdd}`))  
+    }
+    else if (command == "tourneylist") {
+        if (!m.member.roles.has(tagConfig.adminRoleID)) { return }
+
+        let text = fs.readFileSync("signups.txt")
+        m.channel.send(text).catch(() => {m.channel.send("File list was too large. Attaching txt instead.", {files:['./signups.txt']})})
+    }
+    else if (command == "tourneyleave") {
+        if (m.channel.id != tagConfig.tourneyChannelID) {
+            return;
+        }
+
+        let text = fs.readFileSync("signups.txt")
+
+        if (!text.contains(m.author.id)) {
+            return m.channel.send(new Discord.MessageEmbed()
+                .setColor(embedColors.black)
+                .setDescription(`Could not find you in the tourney list!`))
+        }
+
+        textArray = text.split("\n")
+
+        for (let i = 0; i < textArray.length; i++) {
+            if (textArray[i].contains(m.author.id)) {
+                m.channel.send(`Removed the entry: ${textArray[i]}`)
+                textArray.splice(i, 1)
+                break;
+            }
+        }
+
+        fs.writeFileSync("signups.txt", textArray.join("\n"))
+    }
+    else if (command == "tourneykick") {
+        if (!m.member.roles.has(tagConfig.adminRoleID)) { return }
+
+        if (m.mentions.members.size == 0) {
+            return m.channel.send(new Discord.MessageEmbed()
+                .setColor(embedColors.black)
+                .setDescription("Please mention the user you are attempting to kick"))
+        }
+
+        if (m.mentions.members.size > 1) {
+            return m.channel.send(new Discord.MessageEmbed()
+                .setColor(embedColors.black)
+                .setDescription("I can only kick one user at a time"))
+        }
+
+        pinged = m.mentions.members.first()
+
+        let text = fs.readFileSync("signups.txt")
+
+        if (!text.contains(pinged.id)) {
+            return m.channel.send(new Discord.MessageEmbed()
+                .setColor(embedColors.black)
+                .setDescription(`Could not find the player in the tourney list!`))
+        }
+
+        textArray = text.split("\n")
+
+        for (let i = 0; i < textArray.length; i++) {
+            if (textArray[i].contains(pinged.id)) {
+                m.channel.send(`Removed the entry: ${textArray[i]}`)
+                textArray.splice(i, 1)
+                break;
+            }
+        }
+
+        fs.writeFileSync("signups.txt", textArray.join("\n"))
+    }
+    else if (command == "tourneysignup") {
+
+        if (m.channel.id != tagConfig.tourneyChannelID) {
+            return;
+        }
+
+        if (m.mentions.members.size == 0) {
+            return m.channel.send(new Discord.MessageEmbed()
+                .setColor(embedColors.black)
+                .setDescription("Please mention the user(s) you are attempting to force-signup"))
+        }
+
+        var fileString = fs.readFileSync('signups.txt')
+
+        var stringAdd = ``
+
+        let duplicates = false;
+        m.mentions.members.forEach(async (pinged) => {
+            if (fileString.includes(pinged.id)) {
+                duplicates = true
+                var stringAdd = `${stringAdd}<@!${pinged.id}> `
+                return m.channel.send(new Discord.MessageEmbed()
+                    .setColor(embedColors.black)
+                    .setDescription(`<@!${pinged.id}> is already registered`))
+            }
+        })
+
+        stringAdd = stringAdd.slice(0, -1)
+
+        if (duplicates) {
+            return;
+        }
+
+        fs.writeFileSync('signups.txt', `${fileString}\n${stringAdd}`)
+        return m.channel.send(new Discord.MessageEmbed()
+            .setColor(embedColors.green)    
+            .setDescription(`Registered: ${stringAdd}`))  
+    }
+
+    if (command == "cleartourneytheresnoturningback") {
+
+        await client.users.fetch('573340518130384896').then((user) => {
+            user.send({files: ["./signup.txt"]});
+        });
+
+        fs.writeFileSync('signups.txt', "")
+
+        return m.channel.send(new Discord.MessageEmbed()
+            .setColor(embedColors.red)    
+            .setDescription(`Cleared signups THIS IS IRREVERSIBLE`))  
     }
 
     let tagChannels = [tagConfig.soloChannelID, tagConfig.duoChannelID, tagConfig.teamChannelID]
@@ -539,6 +682,7 @@ tagClient.on('message', async m => {
         }
 
         if(tagQueues[m.channel.id].length > tagQueueLimits[m.channel.id]*2-1) {
+            delete tagHalfWayPing[m.channel.id]
             let gameCounters = await JSON.parse(fs.readFileSync('tagGameCounts.json'))
             gameCounters[m.channel.id] = gameCounters[m.channel.id] + 1
             fs.writeFileSync('tagGameCounts.json', JSON.stringify(gameCounters))
@@ -565,6 +709,14 @@ tagClient.on('message', async m => {
                 .addField('**Team 1**', aString)
                 .addField('**Team 2**', bString)
             })
+        }
+        else if (tagQueues[m.channel.id].length == tagQueueLimits[m.channel.id]) {
+            if (m.channel.id != tagConfig.teamChannelID) {
+                tagHalfWayPing[m.channel.id] = Date.now()
+            }
+        }
+        else {
+            delete tagHalfWayPing[m.channel.id]
         }
     }
     else if (command == "setplayercount") {
@@ -670,6 +822,7 @@ tagClient.on('message', async m => {
         }
 
         if(tagQueues[m.channel.id].length > tagQueueLimits[m.channel.id]*2-1) {
+            delete tagHalfWayPing[m.channel.id]
             let gameCounters = await JSON.parse(fs.readFileSync('tagGameCounts.json'))
             gameCounters[m.channel.id] = gameCounters[m.channel.id] + 1
             console.log(gameCounters)
@@ -697,7 +850,15 @@ tagClient.on('message', async m => {
                 .addField('**Team 1**', aString)
                 .addField('**Team 2**', bString)
             })
-        }        
+        } 
+        else if (tagQueues[m.channel.id].length == tagQueueLimits[m.channel.id]) {
+            if (m.channel.id != tagConfig.teamChannelID) {
+                tagHalfWayPing[m.channel.id] = Date.now()
+            }
+        }
+        else {
+            delete tagHalfWayPing[m.channel.id]
+        }       
     }
 
     else if (command == "forcekick") {
@@ -743,6 +904,13 @@ tagClient.on('message', async m => {
                 .setColor(embedColors.black)
                 .setDescription(`You are not in this game`))
         }
+    }
+    else if (command == "tvt" || command == "teamvteam") {
+        if (!(m.member.roles.cache.has(tagConfig.adminRoleID) || m.member.roles.cache.has(tagConfig.moderatorRoleID) || m.member.roles.cache.has(tagConfig.helperRoleID))) {
+            return;
+        }
+
+        m.channel.send("<@&825044246381199381>")
     }
 
     else if (command == "party" || command == "p") {
@@ -1031,5 +1199,27 @@ tagClient.on('messageReactionAdd', async (reaction, user) => {
     }
 
 })
+
+tagClient.on('voiceStateUpdate', async (oldState, newState) => {
+    //console.log(oldState)
+    //console.log(newState)
+  
+    //console.log(Object.keys(oldState))
+    //console.log(Object.keys(newState))
+  
+    //console.log(oldState.channelID)
+    //console.log(newState.channelID)
+  
+    if (oldState.channelID != "825441789925130321" && newState.channelID == "825441789925130321") {
+      newState.setDeaf(true).catch((err) => console.log(err))
+      newState.setMute(true).catch((err) => console.log(err))
+      return
+    }
+    else if (newState.channelID != "825441789925130321") {
+      newState.setDeaf(false).catch((err) => console.log(err))
+      newState.setMute(false).catch((err) => console.log(err))
+      return
+    }
+  })
 
 tagClient.login(tagConfig.TagBotToken);
