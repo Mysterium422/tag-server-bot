@@ -6,7 +6,7 @@ const fs = require('fs');
 const yaml = require('js-yaml')
 const schedule = require('node-schedule');
 const humanizeDuration = require('humanize-duration')
-const { shuffle, randInt, timeConverter } = require('../global/globalUtils.js')
+const { shuffle, randInt, timeConverter, ownerID } = require('../global/globalUtils.js')
 
 
 // FETCH UNUSED BUT WORKS FOR FUTURE
@@ -149,7 +149,6 @@ tagClient.on('ready', async () => {
     tagClient.user.setActivity("TNT Tag");
 
     schedule.scheduleJob('0 0 * * * *', async function() {
-
         console.log("Updating Tag ppl")
 
         let tagGuild = await tagClient.guilds.cache.get(tagConfig.tagGuildID)
@@ -157,22 +156,35 @@ tagClient.on('ready', async () => {
         let penaltiesGivenKeys = Object.keys(penaltiesGiven)
         let yellowCardRole = await tagGuild.roles.cache.get(tagConfig.yellowCardRoleID)
         let redCardRole = await tagGuild.roles.cache.get(tagConfig.redCardRoleID)
-        for (let k = 0; k < penaltiesGivenKeys.length; k++) {
-            if (Date.now() - penaltiesGiven[penaltiesGivenKeys[k]] > 4 * 7 * 24 * 60 * 60 * 1000) {
-                let tagMember = await tagGuild.members.fetch(penaltiesGivenKeys[k])
-                if (tagMember.roles.cache.has(tagConfig.yellowCardRoleID)) {
-                    tagMember.roles.remove(yellowCardRole)
-                    delete penaltiesGiven[penaltiesGivenKeys[k]]
-            }
-            if (Date.now() - penaltiesGiven[penaltiesGivenKeys[k]] > 6 * 7 * 24 * 60 * 60 * 1000) {
-                if (tagMember.roles.cache.has(tagConfig.redCardRoleID)) {
-                    tagMember.roles.remove(redCardRole)
+        await redCardRole.members.forEach(async (member, i) => {
+            if (member.id in penaltiesGiven) {
+                if (Date.now() - penaltiesGiven[member.id] > 6 * 7 * 24* 60 * 60 * 1000) {
+                    member.roles.remove(redCardRole)
+                    await tagClient.channels.fetch("737389248155746374").then(async (channel) => {
+                        channel.send(`Removed red card from <@!${member.id}>`)
+                    })
+                    delete penaltiesGiven[member.id]
                 }
-                delete penaltiesGiven[penaltiesGivenKeys[k]]
             }
+        })
+
+        await yellowCardRole.members.forEach(async (member, i) => {
+            if (member.id in penaltiesGiven) {
+                if (Date.now() - penaltiesGiven[member.id] > 4 * 7 * 24* 60 * 60 * 1000) {
+                    member.roles.remove(yellowCardRole)
+                    await tagClient.channels.fetch("737389248155746374").then(async (channel) => {
+                        channel.send(`Removed yellow card from <@!${member.id}>`)
+                    })
+                    delete penaltiesGiven[member.id]
+                }
+            }
+        })
+
+        for (penalty in penaltiesGiven) {
+            if (penaltiesGiven[penalty] > Date.now() + 6.1 * 7 * 24 * 60 * 60 * 1000) {
+                delete penaltiesGiven[penalty]
             }
         }
-        fs.writeFileSync('penalties.json', JSON.stringify(penaltiesGiven))
     })
     schedule.scheduleJob('0 */4 * * * *', async function() {
         
@@ -213,6 +225,8 @@ tagClient.on('message', async m => {
 
     if(m.author.bot) return;
 
+    if(m.guild.id == "825593306640810026") return
+
     //if(m.author.id != "573340518130384896") return;
 
     if(m.channel.id == tagConfig.ignChannelID) {
@@ -236,48 +250,34 @@ tagClient.on('message', async m => {
 
     if (command == "help") {
 
+        await m.channel.send(new Discord.MessageEmbed()
+        .setColor(embedColors.blue)
+        .setTitle('**Help Menu**')
+        .setDescription(`**${prefix}join** or **${prefix}j** - Join the queue of the lobby you are in
+**${prefix}leave** or **${prefix}l** - Leave the queue
+**${prefix}queue** or **${prefix}q** - See who is in this queue
+**${prefix}setplayercount** or **teamsize** {count}- Set the player count of the team lobby
+
+**${prefix}p invite** or **${prefix}p i {user mention}** - Invite a player to your party (party owner only)
+**${prefix}p leave** - Leave a party
+**${prefix}p kick {user mention}** - Kick a player from the party (party owner only)
+**${prefix}p list** - List all players in your party
+**${prefix}p disband** - Disband the party (party owner only)
+*You have a much higher chance to be with players in the same party. Both players need to join the queue separately, however*`)
+        .setTimestamp()
+        .setFooter("TNT Tag Bot created by Mysterium_"))
+
         if (m.member.roles.cache.has(tagConfig.adminRoleID) || m.member.roles.cache.has(tagConfig.moderatorRoleID)) {
             return m.channel.send(new Discord.MessageEmbed()
             .setColor(embedColors.blue)
-            .setTitle('**Help Menu**')
-            .setDescription(`**${prefix}join or ${prefix}j** - Join the queue of the lobby you are in
-    **${prefix}leave or ${prefix}l** - Leave the queue
-    **${prefix}queue or ${prefix}q** - See who is in this queue
-    **${prefix}setplayercount {count}** - Set the player count of the team lobby
-    
-    **${prefix}p invite or ${prefix}p i {user mention}** - Invite a player to your party (party owner only)
-    **${prefix}p leave** - Leave a party
-    **${prefix}p kick {user mention}** - Kick a player from the party (party owner only)
-    **${prefix}p list** - List all players in your party
-    **${prefix}p disband** - Disband the party (party owner only)
-    *You have a much higher chance to be with players in the same party. Both players need to join separately, however*
-    
-    **Staff-only Commands**
-    **${prefix}green {user mention}** - Removes all penalties from the specified user
+            .setTitle('**Staff-only Commands**')
+            .setDescription(`**${prefix}green {user mention}** - Removes all penalties from the specified user
     **${prefix}yellow {user mention}** - Gives the specified user a yellow card. If they already have a yellow card, they get a red one
     **${prefix}red {user mention}** - Gives the specified user a red card.
     **${prefix}status** - Gives a list of all those with penalty cards and when they expire.
     **${prefix}forcejoin {user mention}** - Forces a user to join that game
     **${prefix}forcekick {user mention}** - Force Kicks a user out of that game
     *Cards are automatically taken away when they expire.*`)
-            .setTimestamp()
-            .setFooter("TNT Tag Bot created by Mysterium_"))
-        }
-        else {
-            return m.channel.send(new Discord.MessageEmbed()
-            .setColor(embedColors.blue)
-            .setTitle('**Help Menu**')
-            .setDescription(`**${prefix}join or ${prefix}j** - Join the queue of the lobby you are in
-    **${prefix}leave or ${prefix}l** - Leave the queue
-    **${prefix}queue or ${prefix}q** - See who is in this queue
-    **${prefix}setplayercount {count}** - Set the player count of the team lobby
-    
-    **${prefix}p invite or ${prefix}p i {user mention}** - Invite a player to your party (party owner only)
-    **${prefix}p leave** - Leave a party
-    **${prefix}p kick {user mention}** - Kick a player from the party (party owner only)
-    **${prefix}p list** - List all players in your party
-    **${prefix}p disband** - Disband the party (party owner only)
-    *You have a much higher chance to be with players in the same party. Both players need to join separately, however*`)
             .setTimestamp()
             .setFooter("TNT Tag Bot created by Mysterium_"))
         }
@@ -425,7 +425,7 @@ tagClient.on('message', async m => {
         })
     }
     else if (command == "status") {
-        if (!(m.member.roles.cache.has(tagConfig.adminRoleID) || m.member.roles.cache.has(tagConfig.moderatorRoleID))) {
+        if (!(m.member.roles.cache.has(tagConfig.adminRoleID) || m.member.roles.cache.has(tagConfig.moderatorRoleID) || m.author.id == ownerID)) {
             return;
         }
 
@@ -506,6 +506,7 @@ tagClient.on('message', async m => {
         let duplicates = false;
         m.mentions.members.forEach(async (pinged) => {
             if(pinged.roles.cache.has(tagConfig.redCardRoleID)) {
+                duplicates = true
                 return m.channel.send(new Discord.MessageEmbed()
                     .setColor(embedColors.black)
                     .setDescription(`<@!${pinged.id}> has a :red_square:`))
@@ -528,6 +529,15 @@ tagClient.on('message', async m => {
         if (duplicates) {
             return;
         }
+
+        var signupRole = m.guild.roles.cache.get(tagConfig.signupRoleID)
+
+        m.member.roles.add(signupRole)
+        m.mentions.members.forEach(async (pinged) => {
+            await pinged.roles.add(signupRole)
+        })
+
+
         fs.writeFileSync('signups.txt', `${fileString}\n${stringAdd}`)
         return m.channel.send(new Discord.MessageEmbed()
             .setColor(embedColors.green)    
@@ -559,7 +569,7 @@ tagClient.on('message', async m => {
         }
         return m.channel.send({files:['./signups.txt']})
     }
-    else if (command == "eventleave") {
+    else if (command == "resign") {
         if (m.channel.id != tagConfig.eventChannelID) {
             return;
         }
@@ -576,7 +586,11 @@ tagClient.on('message', async m => {
 
         for (let i = 0; i < textArray.length; i++) {
             if (textArray[i].contains(m.author.id)) {
-                m.channel.send(`Removed the entry: ${textArray[i]}`)
+                message = await m.channel.send(`Removed the entry: ${textArray[i]}`)
+                var signupRole = m.guild.roles.cache.get(tagConfig.signupRoleID)
+                message.mentions.members.forEach(async (pinged) => {
+                    await pinged.roles.remove(signupRole)
+                })
                 textArray.splice(i, 1)
                 break;
             }
@@ -584,7 +598,7 @@ tagClient.on('message', async m => {
 
         fs.writeFileSync("signups.txt", textArray.join("\n"))
     }
-    else if (command == "eventkick") {
+    else if (command == "forceunsignup") {
         if (!m.member.roles.cache.has(tagConfig.adminRoleID)) { return }
 
         if (m.mentions.members.size == 0) {
@@ -613,7 +627,11 @@ tagClient.on('message', async m => {
 
         for (let i = 0; i < textArray.length; i++) {
             if (textArray[i].contains(pinged.id)) {
-                m.channel.send(`Removed the entry: ${textArray[i]}`)
+                message = await m.channel.send(`Removed the entry: ${textArray[i]}`)
+                var signupRole = m.guild.roles.cache.get(tagConfig.signupRoleID)
+                message.mentions.members.forEach(async (pinged) => {
+                    await pinged.roles.remove(signupRole)
+                })
                 textArray.splice(i, 1)
                 break;
             }
@@ -621,7 +639,7 @@ tagClient.on('message', async m => {
 
         fs.writeFileSync("signups.txt", textArray.join("\n"))
     }
-    else if (command == "eventsignup") {
+    else if (command == "forcesignup") {
 
         if (!m.member.roles.cache.has(tagConfig.adminRoleID)) { return }
 
@@ -662,6 +680,12 @@ tagClient.on('message', async m => {
             return;
         }
 
+        var signupRole = m.guild.roles.cache.get(tagConfig.signupRoleID)
+
+        m.mentions.members.forEach(async (pinged) => {
+            await pinged.roles.add(signupRole)
+        })
+
         fs.writeFileSync('signups.txt', `${fileString}\n${stringAdd}`)
         return m.channel.send(new Discord.MessageEmbed()
             .setColor(embedColors.green)    
@@ -677,6 +701,11 @@ tagClient.on('message', async m => {
         });
 
         fs.writeFileSync('signups.txt', "")
+
+        var signupRole = m.guild.roles.cache.get(tagConfig.signupRoleID)
+        signupRole.members.forEach(async (member, i) => {
+            await member.roles.remove(signupRole)
+        })
 
         return m.channel.send(new Discord.MessageEmbed()
             .setColor(embedColors.red)    
@@ -766,7 +795,7 @@ tagClient.on('message', async m => {
             delete tagHalfWayPing[m.channel.id]
         }
     }
-    else if (command == "setplayercount") {
+    else if (command == "setplayercount" || command == "teamsize") {
         if (m.channel.id !== tagConfig.teamChannelID) return;
 
         if (!tagQueues[m.channel.id].includes(m.author.id)) {
@@ -1062,7 +1091,7 @@ tagClient.on('message', async m => {
                 }    
             }
             else {
-                for (let u = 0; u < Object.keys(tagParties); u++) {
+                for (let u = 0; u < Object.keys(tagParties).length; u++) {
                     if (tagParties[Object.keys(tagParties)[u]].includes(m.author.id)) {
                         tagParties[Object.keys(tagParties)[u]].splice(tagParties[Object.keys(tagParties)[u]].indexOf(m.author.id), 1)
                         m.channel.send(new Discord.MessageEmbed()
@@ -1127,7 +1156,7 @@ tagClient.on('message', async m => {
             }
             else {
                 tagPartiesKeys = Object.keys(tagParties)
-                for (let u = 0; u < tagPartiesKeys; u++) {
+                for (let u = 0; u < tagPartiesKeys.length; u++) {
                     if (tagParties[tagPartiesKeys[u]].includes(m.author.id)) {
                         response = ""
                         for (let i = 0; i < tagParties[tagPartiesKeys[u]].length; i++) {
@@ -1142,6 +1171,12 @@ tagClient.on('message', async m => {
                     }
                 }
             }
+        }
+        else if (args[0] == "display") {
+            console.log(tagParties)
+            console.log(tagPartyInvites)
+            console.log(tagQueues)
+            console.log(tagQueueJoins)
         }
         else {
             if (m.mentions.users.size == 0) {
