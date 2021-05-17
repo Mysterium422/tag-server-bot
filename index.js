@@ -6,7 +6,7 @@ const fs = require('fs');
 const yaml = require('js-yaml')
 const schedule = require('node-schedule');
 const humanizeDuration = require('humanize-duration')
-const { shuffle, randInt, timeConverter, ownerID } = require('../global/globalUtils.js')
+const { shuffle, randInt, timeConverter, ownerID, replaceError } = require('../global/globalUtils.js')
 
 
 // FETCH UNUSED BUT WORKS FOR FUTURE
@@ -14,6 +14,7 @@ const { hypixelFetch, plotzesFetch, fetch } = require('../global/mystFetch.js')
 
 // SETUP CONFIG
 let tagConfig = yaml.loadAll(fs.readFileSync('config.yaml', 'utf8'))[2]
+let prefixJson = require('./prefixes.json')
 
 console.log(tagConfig)
 
@@ -39,10 +40,18 @@ var tagParties = {}
 var tagPartyInvites = {}
 var tagQueueJoins = {}
 var tagHalfWayPing = {}
+var tagTvTCooldown = {}
 
 String.prototype.contains = function(substring) {
     return this.indexOf(substring) !== -1
 };
+
+function getPrefix(id) {
+    if (id in prefixJson) {
+        return `${prefixJson[id]} `
+    }
+    return ""
+}
 
 async function memberExistsInTagGuild(guild, id) {
     var exists = true;
@@ -148,6 +157,14 @@ tagClient.on('ready', async () => {
     console.log('Bot: Tag Server Bot is online!');
     tagClient.user.setActivity("TNT Tag");
 
+    let soloChannel = await tagClient.channels.cache.get(tagConfig.soloChannelID)
+    let duoChannel = await tagClient.channels.cache.get(tagConfig.duoChannelID)
+    let teamChannel = await tagClient.channels.cache.get(tagConfig.teamChannelID)
+
+    soloChannel.send(new Discord.MessageEmbed().setColor(embedColors.red).setDescription("Bot restarted. All tag queues have been reset."))
+    duoChannel.send(new Discord.MessageEmbed().setColor(embedColors.red).setDescription("Bot restarted. All tag queues have been reset."))
+    teamChannel.send(new Discord.MessageEmbed().setColor(embedColors.red).setDescription("Bot restarted. All tag queues have been reset."))
+
     schedule.scheduleJob('0 0 * * * *', async function() {
         console.log("Updating Tag ppl")
 
@@ -161,7 +178,7 @@ tagClient.on('ready', async () => {
                 if (Date.now() - penaltiesGiven[member.id] > 6 * 7 * 24* 60 * 60 * 1000) {
                     member.roles.remove(redCardRole)
                     await tagClient.channels.fetch("737389248155746374").then(async (channel) => {
-                        channel.send(`Removed red card from <@!${member.id}>`)
+                        channel.send(`Removed red card from ${getPrefix(member.id)}<@!${member.id}>`)
                     })
                     delete penaltiesGiven[member.id]
                 }
@@ -173,7 +190,7 @@ tagClient.on('ready', async () => {
                 if (Date.now() - penaltiesGiven[member.id] > 4 * 7 * 24* 60 * 60 * 1000) {
                     member.roles.remove(yellowCardRole)
                     await tagClient.channels.fetch("737389248155746374").then(async (channel) => {
-                        channel.send(`Removed yellow card from <@!${member.id}>`)
+                        channel.send(`Removed yellow card from ${getPrefix(member.id)}<@!${member.id}>`)
                     })
                     delete penaltiesGiven[member.id]
                 }
@@ -194,7 +211,7 @@ tagClient.on('ready', async () => {
             if (Date.now() - tagQueueJoins[user][0] > 60 * 60 * 1000) {
                 if (tagQueues[tagQueueJoins[user][1]].includes(user)) {
                     let tagChannel = await tagClient.channels.fetch(tagQueueJoins[user][1])
-                    tagChannel.send(`<@!${user}> was removed from the queue after remaining in it for over an hour`)
+                    tagChannel.send(`${getPrefix(user)}<@!${user}> was removed from the queue after remaining in it for over an hour`)
                     var removeID = user
                     tagQueues[tagChannel.id].splice(tagQueues[tagChannel.id].indexOf(removeID), 1)
                     delete tagQueueJoins[user]
@@ -277,9 +294,9 @@ tagClient.on('message', async m => {
     **${prefix}status** - Gives a list of all those with penalty cards and when they expire.
     **${prefix}forcejoin {user mention}** - Forces a user to join that game
     **${prefix}forcekick {user mention}** - Force Kicks a user out of that game
-    *Cards are automatically taken away when they expire.*`)
-            .setTimestamp()
-            .setFooter("TNT Tag Bot created by Mysterium_"))
+    *Cards are automatically taken away when they expire.*
+    **${prefix}tvt** - Pings the tvt role`)
+            .setTimestamp())
         }
     }
     else if (command == "yellow") {
@@ -319,7 +336,7 @@ tagClient.on('message', async m => {
             if (pinged.roles.cache.has(tagConfig.redCardRoleID)) {
                 return m.channel.send(new Discord.MessageEmbed()
                     .setColor(embedColors.black)
-                    .setDescription(`<@!${pinged.id}> already has a red card!`))
+                    .setDescription(`${getPrefix(pinged.id)}<@!${pinged.id}> already has a red card!`))
             }
             else if (pinged.roles.cache.has(tagConfig.yellowCardRoleID)) {
                 pinged.roles.remove(yellowCardRole)
@@ -329,7 +346,7 @@ tagClient.on('message', async m => {
                 fs.writeFileSync('penalties.json', JSON.stringify(penaltiesGiven))
                 return m.channel.send(new Discord.MessageEmbed()
                     .setColor(embedColors.green)
-                    .setDescription(`Upgraded the yellow card to a red card for <@!${pinged.id}>`))
+                    .setDescription(`Upgraded the yellow card to a red card for ${getPrefix(pinged.id)}<@!${pinged.id}>`))
             }
             else {
                 pinged.roles.add(yellowCardRole)
@@ -338,7 +355,7 @@ tagClient.on('message', async m => {
                 fs.writeFileSync('penalties.json', JSON.stringify(penaltiesGiven))
                 return m.channel.send(new Discord.MessageEmbed()
                     .setColor(embedColors.green)
-                    .setDescription(`Gave a yellow card to <@!${pinged.id}>`))
+                    .setDescription(`Gave a yellow card to ${getPrefix(pinged.id)}<@!${pinged.id}>`))
             }
         })
     }
@@ -375,7 +392,7 @@ tagClient.on('message', async m => {
             if (pinged.roles.cache.has(tagConfig.redCardRoleID)) {
                 return m.channel.send(new Discord.MessageEmbed()
                     .setColor(embedColors.black)
-                    .setDescription(`<@!${pinged.id}> already has a red card!`))
+                    .setDescription(`${getPrefix(pinged.id)}<@!${pinged.id}> already has a red card!`))
             }
             pinged.roles.add(redCardRole)
             penaltiesGiven = JSON.parse(fs.readFileSync('penalties.json'))
@@ -383,7 +400,7 @@ tagClient.on('message', async m => {
             fs.writeFileSync('penalties.json', JSON.stringify(penaltiesGiven))
             return m.channel.send(new Discord.MessageEmbed()
                 .setColor(embedColors.green)
-                .setDescription(`Gave a red card to <@!${pinged.id}>`))
+                .setDescription(`Gave a red card to ${getPrefix(pinged.id)}<@!${pinged.id}>`))
         })
     }
 
@@ -415,12 +432,12 @@ tagClient.on('message', async m => {
                 fs.writeFileSync('penalties.json', JSON.stringify(penaltiesGiven))
                 return m.channel.send(new Discord.MessageEmbed()
                     .setColor(embedColors.green)
-                    .setDescription(`Removed all penalties from <@!${pinged.id}>`))
+                    .setDescription(`Removed all penalties from ${getPrefix(pinged.id)}<@!${pinged.id}>`))
             }
             else {
                 return m.channel.send(new Discord.MessageEmbed()
                     .setColor(embedColors.green)
-                    .setDescription(`<@!${pinged.id}> had no penalties to remove`))
+                    .setDescription(`${getPrefix(pinged.id)}<@!${pinged.id}> had no penalties to remove`))
             }
         })
     }
@@ -490,7 +507,7 @@ tagClient.on('message', async m => {
         if(m.member.roles.cache.has(tagConfig.redCardRoleID)) {
             return m.channel.send(new Discord.MessageEmbed()
                 .setColor(embedColors.black)
-                .setDescription(`<@!${m.author.id}> has a :red_square:`))
+                .setDescription(`${getPrefix(m.author.id)}<@!${m.author.id}> has a :red_square:`))
         }
 
         var fileString = fs.readFileSync('signups.txt', 'utf8')
@@ -498,7 +515,7 @@ tagClient.on('message', async m => {
         if(fileString.includes(m.author.id)) {
             return m.channel.send(new Discord.MessageEmbed()
                 .setColor(embedColors.black)
-                .setDescription(`<@!${m.author.id}> is already registered`))
+                .setDescription(`${getPrefix(m.author.id)}<@!${m.author.id}> is already registered`))
         }
 
         var stringAdd = `<@!${m.author.id}>`
@@ -509,18 +526,19 @@ tagClient.on('message', async m => {
                 duplicates = true
                 return m.channel.send(new Discord.MessageEmbed()
                     .setColor(embedColors.black)
-                    .setDescription(`<@!${pinged.id}> has a :red_square:`))
+                    .setDescription(`${getPrefix(pinged.id)}<@!${pinged.id}> has a :red_square:`))
             }
             if (fileString.includes(pinged.id)) {
                 duplicates = true
                 return m.channel.send(new Discord.MessageEmbed()
                     .setColor(embedColors.black)
-                    .setDescription(`<@!${pinged.id}> is already registered`))
+                    .setDescription(`${getPrefix(pinged.id)}<@!${pinged.id}> is already registered`))
             }
             if (stringAdd.includes(pinged.id)) {
-                return m.channel.send(new Discord.MessageEmbed()
-                    .setColor(embedColors.black)
-                    .setDescription(`<@!${pinged.id}> was registered twice?!`))
+                return
+                // m.channel.send(new Discord.MessageEmbed()
+                //     .setColor(embedColors.black)
+                //     .setDescription(`<@!${pinged.id}> was registered twice?!`))
             }
             
             stringAdd = `${stringAdd} <@!${pinged.id}>`
@@ -664,12 +682,12 @@ tagClient.on('message', async m => {
                 duplicates = true
                 return m.channel.send(new Discord.MessageEmbed()
                     .setColor(embedColors.black)
-                    .setDescription(`<@!${pinged.id}> is already registered`))
+                    .setDescription(`${getPrefix(pinged.id)}<@!${pinged.id}> is already registered`))
             }
             if (stringAdd.includes(pinged.id)) {
                 return m.channel.send(new Discord.MessageEmbed()
                     .setColor(embedColors.black)
-                    .setDescription(`<@!${pinged.id}> was registered twice?!`))
+                    .setDescription(`${getPrefix(pinged.id)}<@!${pinged.id}> was registered twice?!`))
             }
             stringAdd = `${stringAdd}<@!${pinged.id}> `
         })
@@ -749,12 +767,12 @@ tagClient.on('message', async m => {
         if (tagQueues[m.channel.id].length == 1) {
             m.channel.send(new Discord.MessageEmbed()
                 .setColor(embedColors.green)
-                .setDescription(`[${tagQueues[m.channel.id].length}/${tagQueueLimits[m.channel.id]*2}] <@!${m.author.id}> created a new game.`))
+                .setDescription(`[${tagQueues[m.channel.id].length}/${tagQueueLimits[m.channel.id]*2}] ${getPrefix(m.author.id)}<@!${m.author.id}> created a new game.`))
         }
         else {
             m.channel.send(new Discord.MessageEmbed()
                 .setColor(embedColors.green)
-                .setDescription(`[${tagQueues[m.channel.id].length}/${tagQueueLimits[m.channel.id]*2}] <@!${m.author.id}> joined the game.`))
+                .setDescription(`[${tagQueues[m.channel.id].length}/${tagQueueLimits[m.channel.id]*2}] ${getPrefix(m.author.id)}<@!${m.author.id}> joined the game.`))
         }
 
         if(tagQueues[m.channel.id].length > tagQueueLimits[m.channel.id]*2-1) {
@@ -807,7 +825,7 @@ tagClient.on('message', async m => {
         if (m.author.id !== tagQueues[m.channel.id][0]) {
             return m.channel.send(new Discord.MessageEmbed()
                 .setColor(embedColors.black)
-                .setDescription(`Only the game creator, <@!${tagQueues[m.channel.id][0]}>, can do this.`))
+                .setDescription(`Only the game creator, ${getPrefix(tagQueues[m.channel.id][0])}<@!${tagQueues[m.channel.id][0]}>, can do this.`))
         }
 
         if (!isFinite(args[0])) {
@@ -843,7 +861,7 @@ tagClient.on('message', async m => {
             tagQueues[m.channel.id].splice(tagQueues[m.channel.id].indexOf(m.author.id), 1)
             return m.channel.send(new Discord.MessageEmbed()
                 .setColor(embedColors.red)
-                .setDescription(`[${tagQueues[m.channel.id].length}/${tagQueueLimits[m.channel.id]*2}] <@!${m.author.id}> has left the game.`))
+                .setDescription(`[${tagQueues[m.channel.id].length}/${tagQueueLimits[m.channel.id]*2}] ${getPrefix(m.author.id)}<@!${m.author.id}> has left the game.`))
         }
         else {
             return m.channel.send(new Discord.MessageEmbed()
@@ -880,7 +898,7 @@ tagClient.on('message', async m => {
         if(inGame(pinged.id)) {
             return m.channel.send(new Discord.MessageEmbed()
                 .setColor(embedColors.black)
-                .setDescription(`Player <@!${pinged.id}> is already in a game`))
+                .setDescription(`${getPrefix(pinged.id)}<@!${pinged.id}> is already in a game`))
         }
 
         tagQueues[m.channel.id].push(pinged.id)
@@ -889,12 +907,12 @@ tagClient.on('message', async m => {
         if (tagQueues[m.channel.id].length == 1) {
             m.channel.send(new Discord.MessageEmbed()
                 .setColor(embedColors.green)
-                .setDescription(`[${tagQueues[m.channel.id].length}/${tagQueueLimits[m.channel.id]*2}] <@!${pinged.id}> created a new game.`))
+                .setDescription(`[${tagQueues[m.channel.id].length}/${tagQueueLimits[m.channel.id]*2}] ${getPrefix(pinged.id)}<@!${pinged.id}> created a new game.`))
         }
         else {
             m.channel.send(new Discord.MessageEmbed()
                 .setColor(embedColors.green)
-                .setDescription(`[${tagQueues[m.channel.id].length}/${tagQueueLimits[m.channel.id]*2}] <@!${pinged.id}> joined the game.`))
+                .setDescription(`[${tagQueues[m.channel.id].length}/${tagQueueLimits[m.channel.id]*2}] ${getPrefix(pinged.id)}<@!${pinged.id}> joined the game.`))
         }
 
         if(tagQueues[m.channel.id].length > tagQueueLimits[m.channel.id]*2-1) {
@@ -966,14 +984,14 @@ tagClient.on('message', async m => {
         if(!inGame(pinged.id)) {
             return m.channel.send(new Discord.MessageEmbed()
                 .setColor(embedColors.black)
-                .setDescription(`Player <@!${pinged.id}> is not in any game`))
+                .setDescription(`${getPrefix(pinged.id)}<@!${pinged.id}> is not in any game`))
         }
 
         if (tagQueues[m.channel.id].indexOf(pinged.id) > -1) {
             tagQueues[m.channel.id].splice(tagQueues[m.channel.id].indexOf(pinged.id), 1)
             return m.channel.send(new Discord.MessageEmbed()
                 .setColor(embedColors.red)
-                .setDescription(`[${tagQueues[m.channel.id].length}/${tagQueueLimits[m.channel.id]*2}] <@!${pinged.id}> has left the game.`))
+                .setDescription(`[${tagQueues[m.channel.id].length}/${tagQueueLimits[m.channel.id]*2}] ${getPrefix(pinged.id)}<@!${pinged.id}> has left the game.`))
         }
         else {
             return m.channel.send(new Discord.MessageEmbed()
@@ -982,11 +1000,20 @@ tagClient.on('message', async m => {
         }
     }
     else if (command == "tvt" || command == "teamvteam") {
-        if (!(m.member.roles.cache.has(tagConfig.adminRoleID) || m.member.roles.cache.has(tagConfig.moderatorRoleID) || m.member.roles.cache.has(tagConfig.helperRoleID))) {
-            return;
+        if (m.member.roles.cache.has(tagConfig.adminRoleID) || m.member.roles.cache.has(tagConfig.moderatorRoleID) || m.member.roles.cache.has(tagConfig.helperRoleID)) {
+            return m.channel.send("<@&825044246381199381>");
         }
 
-        m.channel.send("<@&825044246381199381>")
+        if (m.member.roles.cache.has(tagConfig.sponsorPlusRoleID) || m.member.roles.cache.has(tagConfig.sponsorPlusRoleID2)) {
+            if (Date.now() - replaceError(tagTvTCooldown[m.author.id], 0) > 30 * 60 * 1000) {
+                tagTvTCooldown[m.author.id] = Date.now()
+                return m.channel.send("<@&825044246381199381>")                
+            }
+            else {
+                return m.channel.send("You are still on the 30 minute cooldown")
+            }
+        }
+        
     }
 
     else if (command == "party" || command == "p") {
@@ -1021,11 +1048,11 @@ tagClient.on('message', async m => {
                 if (inParty(pinged.id)) {
                     return m.channel.send(new Discord.MessageEmbed()
                         .setColor(embedColors.black)
-                        .setDescription(`Player <@!${pinged.id}> is already in a party!`))
+                        .setDescription(`${getPrefix(pinged.id)}<@!${pinged.id}> is already in a party!`))
                 }
                 let message = await m.channel.send(`<@!${pinged.id}>`, {embed: new Discord.MessageEmbed()
                     .setColor(embedColors.blue)
-                    .setDescription(`<@!${pinged.id}> Click the check mark below to join <@!${m.author.id}>'s party`)
+                    .setDescription(`${getPrefix(pinged.id)}<@!${pinged.id}> Click the check mark below to join ${getPrefix(m.author.id)}<@!${m.author.id}>'s party`)
                 })
                 tagPartyInvites[message.id] = [m.author.id, pinged.id]
                 await message.react('✅')
@@ -1074,7 +1101,7 @@ tagClient.on('message', async m => {
             if (m.author.id in tagParties) {
                 m.channel.send(new Discord.MessageEmbed()
                     .setColor(embedColors.red)
-                    .setDescription(`<@!${m.author.id}> has left the party`))
+                    .setDescription(`${getPrefix(m.author.id)}<@!${m.author.id}> has left the party`))
                 if (tagParties[m.author.id].length == 1) {
                     delete tagParties[m.author.id]
                     return m.channel.send(new Discord.MessageEmbed()
@@ -1086,7 +1113,7 @@ tagClient.on('message', async m => {
                     tagParties[tagParties[m.author.id][0]].shift()
                     m.channel.send(new Discord.MessageEmbed()
                         .setColor(embedColors.blue)
-                        .setDescription(`Party ownership has transfered over to <@!${tagParties[m.author.id][0]}>`))
+                        .setDescription(`Party ownership has transfered over to ${getPrefix(tagParties[m.author.id][0])}<@!${tagParties[m.author.id][0]}>`))
                     return delete tagParties[m.author.id]
                 }    
             }
@@ -1096,7 +1123,7 @@ tagClient.on('message', async m => {
                         tagParties[Object.keys(tagParties)[u]].splice(tagParties[Object.keys(tagParties)[u]].indexOf(m.author.id), 1)
                         m.channel.send(new Discord.MessageEmbed()
                             .setColor(embedColors.red)
-                            .setDescription(`<@!${m.author.id}> has left the party`))
+                            .setDescription(`${getPrefix(m.author.id)}<@!${m.author.id}> has left the party`))
                         break;
                     }
                 }
@@ -1126,7 +1153,7 @@ tagClient.on('message', async m => {
                 tagParties[m.author.id].splice(tagParties[m.author.id].indexOf(pinged.id), 1)
                 m.channel.send(new Discord.MessageEmbed()
                     .setColor(embedColors.red)
-                    .setDescription(`<@!${pinged.id}> was kicked from the party`))
+                    .setDescription(`${getPrefix(pinged.id)}<@!${pinged.id}> was kicked from the party`))
             })
 
             if (tagParties[m.author.id].length == 0) {
@@ -1209,11 +1236,11 @@ tagClient.on('message', async m => {
                 if (inParty(pinged.id)) {
                     return m.channel.send(new Discord.MessageEmbed()
                         .setColor(embedColors.black)
-                        .setDescription(`Player <@!${pinged.id}> is already in a party!`))
+                        .setDescription(`${getPrefix(pinged.id)}<@!${pinged.id}> is already in a party!`))
                 }
                 let message = await m.channel.send(`<@!${pinged.id}>`, {embed: new Discord.MessageEmbed()
                     .setColor(embedColors.blue)
-                    .setDescription(`<@!${pinged.id}> Click the check mark below to join <@!${m.author.id}>'s party`)
+                    .setDescription(`${getPrefix(pinged.id)}<@!${pinged.id}> Click the check mark below to join ${getPrefix(m.author.id)}<@!${m.author.id}>'s party`)
                 })
                 tagPartyInvites[message.id] = [m.author.id, pinged.id]
                 await message.react('✅')
@@ -1236,6 +1263,77 @@ tagClient.on('message', async m => {
                 }, 10 * 1000);
             })
         }
+    }
+    else if (command == "prefix") {
+        if (args.length == 0) {
+            return m.channel.send(new Discord.MessageEmbed()
+                .setColor(embedColors.red)
+                .setDescription('Needs at least 1 argument! Do =prefix help for info'))
+        }
+        if (args[0] == "help") {
+            return m.channel.send(new Discord.MessageEmbed()
+                .setColor(embedColors.black)
+                .setDescription('Usage: =prefix {prefix}\n0: Remove Prefix\n1: Donor\n2: The Amazing\n3: Expert\n4: Tryhard\n5: Tagger\n\nSponsors can set their prefix to anything (I.E =prefix The Superior God)')
+            )
+        }
+        if (!(m.member.roles.cache.has(tagConfig.sponsorRoleID) || m.member.roles.cache.has(tagConfig.sponsorRoleID2) || m.member.roles.cache.has(tagConfig.sponsorPlusRoleID) || m.member.roles.cache.has(tagConfig.sponsorPlusRoleID2))) {
+            return m.channel.send(new Discord.MessageEmbed()
+                .setColor(embedColors.red)
+                .setDescription('Insufficient Permissions'));
+        }
+        if (args[0] == "0") {
+            delete prefixJson[m.author.id]
+            fs.writeFileSync('prefixes.json', JSON.stringify(prefixJson))
+            return m.channel.send(new Discord.MessageEmbed()
+                .setColor(embedColors.green)
+                .setDescription('Set prefix to ""'));
+        }
+        if (args[0] == "1") {
+            prefixJson[m.author.id] = "Donor"
+            fs.writeFileSync('prefixes.json', JSON.stringify(prefixJson))
+            return m.channel.send(new Discord.MessageEmbed()
+                .setColor(embedColors.green)
+                .setDescription('Set prefix to "Donor"'));
+        }
+        else if (args[0] == "2") {
+            prefixJson[m.author.id] = "The Amazing"
+            fs.writeFileSync('prefixes.json', JSON.stringify(prefixJson))
+            return m.channel.send(new Discord.MessageEmbed()
+                .setColor(embedColors.green)
+                .setDescription('Set prefix to "The Amazing"'));
+        }
+        else if (args[0] == "3") {
+            prefixJson[m.author.id] = "Expert"
+            fs.writeFileSync('prefixes.json', JSON.stringify(prefixJson))
+            return m.channel.send(new Discord.MessageEmbed()
+                .setColor(embedColors.green)
+                .setDescription('Set prefix to "Expert"'));
+        }
+        else if (args[0] == "4") {
+            prefixJson[m.author.id] = "Tryhard"
+            fs.writeFileSync('prefixes.json', JSON.stringify(prefixJson))
+            return m.channel.send(new Discord.MessageEmbed()
+                .setColor(embedColors.green)
+                .setDescription('Set prefix to "Tryhard"'));
+        }
+        else if (args[0] == "5") {
+            prefixJson[m.author.id] = "Tagger"
+            fs.writeFileSync('prefixes.json', JSON.stringify(prefixJson))
+            return m.channel.send(new Discord.MessageEmbed()
+                .setColor(embedColors.green)
+                .setDescription('Set prefix to "Tagger"'));
+        }
+        if (!(m.member.roles.cache.has(tagConfig.sponsorPlusRoleID) || m.member.roles.cache.has(tagConfig.sponsorPlusRoleID2))) {
+            return m.channel.send(new Discord.MessageEmbed()
+                .setColor(embedColors.red)
+                .setDescription('Insufficient Permissions'));
+        }
+        let prefixTemp = m.content.slice(8)
+        prefixJson[m.author.id] = prefixTemp
+        fs.writeFileSync('prefixes.json', JSON.stringify(prefixJson))
+        return m.channel.send(new Discord.MessageEmbed()
+                .setColor(embedColors.green)
+                .setDescription(`Set prefix to "${prefixTemp}"`));
     }
 })
 
@@ -1267,7 +1365,7 @@ tagClient.on('messageReactionAdd', async (reaction, user) => {
             }
             reaction.message.channel.send(new Discord.MessageEmbed()
                     .setColor(embedColors.green)
-                    .setDescription(`<@!${user.id}> has joined <@!${tagPartyInvites[reaction.message.id][0]}>'s party`))
+                    .setDescription(`${getPrefix(user.id)}<@!${user.id}> has joined ${getPrefix(tagPartyInvites[reaction.message.id][0])}<@!${tagPartyInvites[reaction.message.id][0]}>'s party`))
             return delete tagPartyInvites[reaction.message.id]
         }
         else if (reaction.emoji.name === '❌') {
@@ -1275,7 +1373,7 @@ tagClient.on('messageReactionAdd', async (reaction, user) => {
             delete tagPartyInvites[reaction.message.id]
             return reaction.message.channel.send(new Discord.MessageEmbed()
                     .setColor(embedColors.green)
-                    .setDescription(`Sorry! <@!${user.id}> isn't interested!`))
+                    .setDescription(`Sorry! ${getPrefix(user.id)}<@!${user.id}> isn't interested!`))
         }
         return
     }
